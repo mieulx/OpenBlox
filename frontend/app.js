@@ -1,4 +1,4 @@
-let curId = null, sending = false;
+let curId = null, sending = false, abortController = null;
 let editingIndex = null;
 const TIMEOUT_MS = 120000;
 
@@ -15,6 +15,23 @@ async function api(p, o = {}) {
     throw new Error(e.error || r.statusText);
   }
   return r.json();
+}
+
+function abortFetch() {
+  if (abortController) {
+    abortController.abort();
+    abortController = null;
+  }
+}
+
+function stopThinking() {
+  abortFetch();
+  clearTimeout(_sendTimer);
+  document.querySelectorAll('.think').forEach(el => el.remove());
+  sending = false;
+  document.getElementById('send-btn').disabled = false;
+  document.getElementById('chat-input').focus();
+  showError('Stopped by user', 'warn');
 }
 
 // ─── Init ───
@@ -176,14 +193,27 @@ function cancelEdit() {
 }
 
 // ─── Chat ───
+let _sendTimer = null;
+
 async function send() {
-  if (sending) return;
   const inp = document.getElementById('chat-input');
   const text = inp.value.trim();
   if (!text) return;
 
+  // Interrupt previous request if still sending
+  if (sending) {
+    abortFetch();
+    clearTimeout(_sendTimer);
+    // Remove old thinking indicator
+    const oldThink = document.querySelector('.think');
+    if (oldThink) oldThink.remove();
+    sending = false;
+    document.getElementById('send-btn').disabled = false;
+  }
+
   inp.value = ''; inp.style.height = 'auto';
   sending = true;
+  abortController = new AbortController();
   clearError();
   document.getElementById('input-bar').classList.remove('editing');
 
@@ -191,27 +221,27 @@ async function send() {
   const w = msgs.querySelector('.welcome');
   if (w) msgs.innerHTML = '';
 
+  const editIdx = editingIndex;
+
   if (editingIndex === null) {
     msgs.insertAdjacentHTML('beforeend', renderMsg('user', text, -1));
   }
-
-  const editIdx = editingIndex;
   editingIndex = null;
 
   const tid = 't-' + Date.now();
   msgs.insertAdjacentHTML('beforeend',
-    `<div id="${tid}" class="think"><span>Thinking</span><span class="d"><span></span><span></span><span></span></span></div>`
+    `<div id="${tid}" class="think"><span>Thinking</span><span class="d"><span></span><span></span><span></span></span><button class="stop-btn" onclick="stopThinking()">Stop</button></div>`
   );
   scrollDown();
   document.getElementById('send-btn').disabled = true;
 
   const dev = document.getElementById('dev-mode').checked;
   let timedOut = false;
-  const timeoutTimer = setTimeout(() => {
+  _sendTimer = setTimeout(() => {
     timedOut = true;
     document.getElementById(tid)?.remove();
-    showError('Request timed out after ' + (TIMEOUT_MS/1000) + 's. The model may be overloaded.', 'err');
-    msgs.insertAdjacentHTML('beforeend', renderMsg('assistant', '_Request timed out. Try again or switch to a faster model._', -1));
+    showError('Request timed out after ' + (TIMEOUT_MS/1000) + 's.', 'err');
+    msgs.insertAdjacentHTML('beforeend', renderMsg('assistant', '_Request timed out._', -1));
     scrollDown();
     sending = false;
     document.getElementById('send-btn').disabled = false;
@@ -224,10 +254,12 @@ async function send() {
     const data = await api('/api/chat', {
       method: 'POST',
       body: JSON.stringify(body),
+      signal: abortController.signal,
     });
 
-    clearTimeout(timeoutTimer);
+    clearTimeout(_sendTimer);
     if (timedOut) return;
+    if (abortController.signal.aborted) return;
 
     curId = data.session.id;
     document.getElementById(tid)?.remove();
@@ -238,19 +270,18 @@ async function send() {
       hideDev();
     }
 
-    // Re-render the full session to reflect edits cleanly
     const sess = await api('/api/sessions/' + curId);
     msgs.innerHTML = sess.messages.map((msg, i) => renderMsg(msg.role, msg.content, i)).join('');
     scrollDown();
     refreshSessions();
   } catch (e) {
-    clearTimeout(timeoutTimer);
-    if (timedOut) return;
+    clearTimeout(_sendTimer);
+    if (timedOut || abortController?.signal.aborted) return;
     document.getElementById(tid)?.remove();
     const errMsg = e.message.includes('Failed to fetch')
-      ? 'Cannot reach server. Check that it\'s still running.'
+      ? 'Cannot reach server.'
       : e.message.includes('timed out')
-      ? 'Request timed out. Try a faster model.'
+      ? 'Request timed out.'
       : e.message;
     showError(errMsg, 'err');
     msgs.insertAdjacentHTML('beforeend', renderMsg('assistant', '_Error: ' + esc(errMsg) + '_', -1));

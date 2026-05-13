@@ -46,12 +46,17 @@ ROBLOX_SYSTEM = (
     "\n"
     "Always explain briefly what type of script it is and where the user should put it."
     "\n"
+    "PLANNING CHECKLIST:\n"
+    "If the user asks for something multi-step (create a game system, multiple scripts, "
+    "a full feature), first output a numbered checklist of what you'll do. "
+    "Then execute each step. Mark items as [DONE] as you complete them.\n"
+    "\n"
     "MCP TOOL USAGE:\n"
-    "When the Roblox Studio MCP tool is active, you can create, read, update, and delete "
-    "Roblox instances, scripts, and properties directly in the user's Roblox Studio session. "
-    "If the user asks you to DO something in Roblox Studio (create a script, change a property, "
-    "insert a part, etc.), use the available MCP tools to do it. Always check if the user's "
-    "request can be fulfilled with a tool call before just giving them code to paste."
+    "When Roblox Studio MCP is active, you can create/edit instances and scripts directly "
+    "in Studio. If the user asks you to DO something in Studio (create a script, change a "
+    "property, insert a part), call the appropriate MCP tool. Only give copy-paste code "
+    "if MCP is not available or the user asks for code specifically. You can chain "
+    "multiple tool calls if needed — no need to overthink."
 )
 
 
