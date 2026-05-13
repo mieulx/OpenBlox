@@ -175,12 +175,15 @@ class KiloClient:
             if resp.status_code == 404:
                 return {"message": {"content": f"Model '{self.model}' not available."}}
             resp.raise_for_status()
-            return resp.json().get("choices", [{}])[0]
+            try:
+                return resp.json().get("choices", [{}])[0]
+            except (json.JSONDecodeError, ValueError):
+                return {"message": {"content": f"API returned non-JSON: {resp.text[:200]}"}}
         except requests.Timeout:
             return {"message": {"content": "Error: Request timed out."}}
         except requests.RequestException as e:
             return {"message": {"content": f"Connection error: {e}"}}
-        except (json.JSONDecodeError, KeyError, IndexError) as e:
+        except (KeyError, IndexError) as e:
             return {"message": {"content": f"Response error: {e}"}}
 
     def test(self) -> tuple[bool, str]:

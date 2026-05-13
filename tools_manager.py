@@ -142,72 +142,78 @@ BUILTIN_TOOLS = {
 
 class ToolsManager:
     def __init__(self):
-        self.tools = {}
+        self.tool_defs = {}
         self.mcp_clients = {}
         self._mcp_tools_cache = {}
         for tid, cfg in BUILTIN_TOOLS.items():
-            self.tools[tid] = dict(cfg)
+            self.tool_defs[tid] = dict(cfg)
             if cfg.get("command"):
                 self.mcp_clients[tid] = MCPClient(cfg["command"], cfg.get("args"))
 
-    def get_tools(self) -> list[dict]:
+    def is_enabled(self, tool_id: str, session_tools: dict) -> bool:
+        return session_tools.get(tool_id, False)
+
+    def get_tools(self, session_tools: dict = None) -> list[dict]:
+        if session_tools is None:
+            session_tools = {}
         result = []
-        for tid, t in self.tools.items():
+        for tid, t in self.tool_defs.items():
+            enabled = self.is_enabled(tid, session_tools)
             entry = {
                 "id": tid,
                 "name": t["name"],
                 "description": t["description"],
-                "enabled": t["enabled"],
+                "enabled": enabled,
                 "has_mcp": t.get("command") is not None,
-                "mcp_tools": [],
             }
-            if t["enabled"] and tid in self.mcp_clients and self.mcp_clients[tid].is_running():
+            if enabled and tid in self.mcp_clients and self.mcp_clients[tid].is_running():
                 mcp_tools = self._mcp_tools_cache.get(tid, [])
-                entry["mcp_tools"] = [{"name": mt["name"], "description": mt.get("description", "")} for mt in mcp_tools]
+                entry["mcp_count"] = len(mcp_tools)
             result.append(entry)
         return result
 
-    def toggle_tool(self, tool_id: str) -> dict:
-        if tool_id not in self.tools:
-            return {"ok": False, "error": "Tool not found"}
-        t = self.tools[tool_id]
-        t["enabled"] = not t["enabled"]
-        if t["enabled"] and tool_id in self.mcp_clients:
+    def toggle_tool(self, tool_id: str, session_tools: dict) -> tuple[dict, dict]:
+        if tool_id not in self.tool_defs:
+            return {"ok": False, "error": "Tool not found"}, session_tools
+        new_enabled = not session_tools.get(tool_id, False)
+        session_tools = dict(session_tools)
+        session_tools[tool_id] = new_enabled
+        if new_enabled and tool_id in self.mcp_clients:
             client = self.mcp_clients[tool_id]
             if not client.is_running():
                 ok, msg = client.start()
                 if ok:
                     mcp_tools = client.list_tools()
                     self._mcp_tools_cache[tool_id] = mcp_tools
-                return {"ok": ok, "enabled": True, "message": msg, "mcp_tools": self._mcp_tools_cache.get(tool_id, [])}
-        elif not t["enabled"] and tool_id in self.mcp_clients:
+                return {"ok": ok, "enabled": True, "message": msg}, session_tools
+        elif not new_enabled and tool_id in self.mcp_clients:
             self.mcp_clients[tool_id].stop()
             self._mcp_tools_cache.pop(tool_id, None)
-        return {"ok": True, "enabled": t["enabled"], "mcp_tools": []}
+        return {"ok": True, "enabled": new_enabled}, session_tools
 
-    def get_enabled_context(self) -> str:
+    def get_enabled_context(self, session_tools: dict) -> str:
         lines = []
-        for tid, t in self.tools.items():
-            if t["enabled"]:
+        for tid, t in self.tool_defs.items():
+            if self.is_enabled(tid, session_tools):
                 lines.append(f"- {t['name']}: {t['description']}")
                 if tid in self.mcp_clients and self.mcp_clients[tid].is_running():
                     count = len(self._mcp_tools_cache.get(tid, []))
                     if count > 0:
-                        lines.append(f"  ({count} tools available — use them when the user wants to do something in Studio)")
+                        lines.append(f"  ({count} tools available)")
         if lines:
             return "Active tools:\n" + "\n".join(lines)
         return ""
 
-    def get_openai_tools(self) -> list[dict]:
+    def get_openai_tools(self, session_tools: dict) -> list[dict]:
         all_tools = []
-        for tid, t in self.tools.items():
-            if t["enabled"] and tid in self.mcp_clients and self.mcp_clients[tid].is_running():
+        for tid, t in self.tool_defs.items():
+            if self.is_enabled(tid, session_tools) and tid in self.mcp_clients and self.mcp_clients[tid].is_running():
                 all_tools.extend(self.mcp_clients[tid].tools_to_openai())
         return all_tools
 
-    def handle_tool_call(self, tool_name: str, arguments: dict) -> Optional[str]:
-        for tid, t in self.tools.items():
-            if t["enabled"] and tid in self.mcp_clients and self.mcp_clients[tid].is_running():
+    def handle_tool_call(self, tool_name: str, arguments: dict, session_tools: dict) -> Optional[str]:
+        for tid in self.tool_defs:
+            if self.is_enabled(tid, session_tools) and tid in self.mcp_clients and self.mcp_clients[tid].is_running():
                 result = self.mcp_clients[tid].call_tool(tool_name, arguments)
                 if result:
                     if "result" in result:

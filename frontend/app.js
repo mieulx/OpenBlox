@@ -592,37 +592,26 @@ async function toggleToolsPanel() {
 
 async function refreshTools() {
   try {
-    const d = await api('/api/tools');
+    const d = await api('/api/tools?session_id=' + (curId || ''));
     const el = document.getElementById('tools-list');
     el.innerHTML = d.tools.map(t => {
       let html = `
         <div class="tool-item">
           <div class="tool-info">
             <div class="tool-name">${esc(t.name)}</div>
-            <div class="tool-desc">${esc(t.description)}</div>
           </div>
           <div class="tool-switch ${t.enabled ? 'on' : ''}" onclick="toggleTool('${t.id}')"></div>
         </div>`;
-      if (t.enabled && t.mcp_tools && t.mcp_tools.length) {
-        html += `<div class="mcp-sublist">`;
-        t.mcp_tools.forEach(mt => {
-          html += `<div class="mcp-subtool"><span class="mcp-dot"></span>${esc(mt.name)} <span class="mcp-subdesc">${esc(mt.description || '')}</span></div>`;
-        });
-        html += `</div>`;
-      }
       return html;
     }).join('');
   } catch {}
 }
 
 async function toggleTool(id) {
-  const d = await api('/api/tools/toggle', { method: 'POST', body: JSON.stringify({ tool_id: id }) });
+  const d = await api('/api/tools/toggle', { method: 'POST', body: JSON.stringify({ tool_id: id, session_id: curId }) });
   await refreshTools();
-  if (d.mcp_tools && d.mcp_tools.length) {
-    toast('MCP connected: ' + d.mcp_tools.length + ' tools available', 'ok');
-  } else {
-    toast('Tool toggled', 'ok');
-  }
+  if (d.message) toast(d.message, d.ok ? 'ok' : 'err');
+  else toast('Tool toggled', 'ok');
 }
 
 // ─── Keyboard ───

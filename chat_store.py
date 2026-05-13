@@ -27,6 +27,7 @@ class ChatSession:
         self.title = title
         self.created = time.time()
         self.messages: list[ChatMessage] = []
+        self.tools: dict[str, bool] = {}
 
     def add_message(self, role: str, content: str):
         self.messages.append(ChatMessage(role, content))
@@ -37,6 +38,7 @@ class ChatSession:
             "title": self.title,
             "created": self.created,
             "messages": [m.to_dict() for m in self.messages],
+            "tools": self.tools,
         }
 
     @classmethod
@@ -45,6 +47,7 @@ class ChatSession:
         s.id = d.get("id", uuid.uuid4().hex[:12])
         s.created = d.get("created", time.time())
         s.messages = [ChatMessage.from_dict(m) for m in d.get("messages", [])]
+        s.tools = d.get("tools", {})
         return s
 
 

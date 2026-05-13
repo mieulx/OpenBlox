@@ -65,6 +65,7 @@ class EditMessageRequest(BaseModel):
 
 class ToolToggle(BaseModel):
     tool_id: str
+    session_id: Optional[str] = None
 
 
 def make_kilo():
@@ -249,10 +250,11 @@ async def chat(req: ChatRequest):
 
     history = [{"role": m.role, "content": m.content} for m in session.messages]
 
-    tool_ctx = tools_mgr.get_enabled_context()
+    st = session.tools
+    tool_ctx = tools_mgr.get_enabled_context(st)
     extra = tool_ctx if tool_ctx else ""
-    openai_tools = tools_mgr.get_openai_tools()
-    tool_handler = (lambda n, a: tools_mgr.handle_tool_call(n, a)) if openai_tools else None
+    openai_tools = tools_mgr.get_openai_tools(st)
+    tool_handler = (lambda n, a: tools_mgr.handle_tool_call(n, a, st)) if openai_tools else None
 
     if req.dev_mode and dev_chunks:
         doc_ctx = dev_proc.build_context(dev_chunks)
@@ -287,10 +289,20 @@ async def list_websites():
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
+def _get_session_tools(req_session_id: str = None) -> dict:
+    s = None
+    if req_session_id:
+        s = _get_session(req_session_id)
+    if not s:
+        s = store.get_active()
+    return s.tools if s else {}
+
+
 @app.get("/api/tools")
-async def list_tools():
+async def list_tools(session_id: str = None):
     try:
-        return {"tools": tools_mgr.get_tools()}
+        st = _get_session_tools(session_id)
+        return {"tools": tools_mgr.get_tools(st)}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
@@ -298,7 +310,16 @@ async def list_tools():
 @app.post("/api/tools/toggle")
 async def toggle_tool(req: ToolToggle):
     try:
-        return tools_mgr.toggle_tool(req.tool_id)
+        result, new_tools = tools_mgr.toggle_tool(req.tool_id, _get_session_tools(req.session_id))
+        s = None
+        if req.session_id:
+            s = _get_session(req.session_id)
+        if not s:
+            s = store.get_active()
+        if s:
+            s.tools = new_tools
+            store.save_session(s)
+        return result
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
