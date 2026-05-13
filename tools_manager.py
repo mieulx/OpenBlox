@@ -191,10 +191,9 @@ class ToolsManager:
             if t["enabled"]:
                 lines.append(f"- {t['name']}: {t['description']}")
                 if tid in self.mcp_clients and self.mcp_clients[tid].is_running():
-                    mcp_tools = self._mcp_tools_cache.get(tid, [])
-                    for mt in mcp_tools:
-                        desc = mt.get("description", "")
-                        lines.append(f"  MCP tool: {mt['name']} — {desc}")
+                    count = len(self._mcp_tools_cache.get(tid, []))
+                    if count > 0:
+                        lines.append(f"  ({count} tools available — use them when the user wants to do something in Studio)")
         if lines:
             return "Active tools:\n" + "\n".join(lines)
         return ""

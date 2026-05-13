@@ -45,6 +45,13 @@ ROBLOX_SYSTEM = (
     "  -- ModuleScript → Place in ReplicatedStorage\n"
     "\n"
     "Always explain briefly what type of script it is and where the user should put it."
+    "\n"
+    "MCP TOOL USAGE:\n"
+    "When the Roblox Studio MCP tool is active, you can create, read, update, and delete "
+    "Roblox instances, scripts, and properties directly in the user's Roblox Studio session. "
+    "If the user asks you to DO something in Roblox Studio (create a script, change a property, "
+    "insert a part, etc.), use the available MCP tools to do it. Always check if the user's "
+    "request can be fulfilled with a tool call before just giving them code to paste."
 )
 
 
@@ -81,33 +88,20 @@ class KiloClient:
     def fetch_free_models(self) -> list[dict]:
         return self.HARDCODED_MODELS
 
-    def chat(self, messages: list, max_tokens: int = 4096,
-             extra_context: str = "", tools: list = None,
-             tool_handler=None) -> Optional[str]:
-        if not self.api_key:
-            return None
-
-        full = [{"role": "system", "content": self._build_system(extra_context)}]
-        full.extend(messages)
-
-        payload = {
-            "model": self.model,
-            "messages": full,
-            "temperature": self.temperature,
-            "max_tokens": max_tokens,
-        }
-        if tools:
-            payload["tools"] = tools
-
-        response = self._send_payload(payload)
-        if response is None:
-            return "(no response)"
-
-        msg = response.get("message", {})
-        content = msg.get("content")
-        tool_calls = msg.get("tool_calls")
-
-        if tool_calls and tool_handler:
+    def _run_tool_loop(self, full: list, payload: dict,
+                       tools: list, tool_handler) -> str:
+        max_rounds = 5
+        content = ""
+        for _ in range(max_rounds):
+            resp = self._send_payload(payload)
+            if resp is None:
+                return content or "(no response)"
+            msg = resp.get("message", {})
+            content = msg.get("content") or content
+            tool_calls = msg.get("tool_calls")
+            if not tool_calls or not tool_handler:
+                break
+            full.append(msg)
             for tc in tool_calls:
                 fn = tc.get("function", {})
                 name = fn.get("name", "")
@@ -116,14 +110,28 @@ class KiloClient:
                 except json.JSONDecodeError:
                     args = {}
                 result = tool_handler(name, args)
-                full.append(msg)
                 full.append({"role": "tool", "tool_call_id": tc["id"], "content": result or "{}"})
             payload["messages"] = full
-            second = self._send_payload(payload)
-            if second:
-                content = second.get("message", {}).get("content") or content
-
+            if tools:
+                payload["tools"] = tools
         return content.strip() if content else "(no response)"
+
+    def chat(self, messages: list, max_tokens: int = 4096,
+             extra_context: str = "", tools: list = None,
+             tool_handler=None) -> Optional[str]:
+        if not self.api_key:
+            return None
+        full = [{"role": "system", "content": self._build_system(extra_context)}]
+        full.extend(messages)
+        payload = {
+            "model": self.model,
+            "messages": full,
+            "temperature": self.temperature,
+            "max_tokens": max_tokens,
+        }
+        if tools:
+            payload["tools"] = tools
+        return self._run_tool_loop(full, payload, tools, tool_handler)
 
     def chat_with_context(self, messages: list, context: str,
                           max_tokens: int = 4096,
@@ -137,7 +145,6 @@ class KiloClient:
         }
         full = [ctx_msg]
         full.extend(messages)
-
         payload = {
             "model": self.model,
             "messages": full,
@@ -146,32 +153,7 @@ class KiloClient:
         }
         if tools:
             payload["tools"] = tools
-
-        response = self._send_payload(payload)
-        if response is None:
-            return "(no response)"
-
-        msg = response.get("message", {})
-        content = msg.get("content")
-        tool_calls = msg.get("tool_calls")
-
-        if tool_calls and tool_handler:
-            for tc in tool_calls:
-                fn = tc.get("function", {})
-                name = fn.get("name", "")
-                try:
-                    args = json.loads(fn.get("arguments", "{}"))
-                except json.JSONDecodeError:
-                    args = {}
-                result = tool_handler(name, args)
-                full.append(msg)
-                full.append({"role": "tool", "tool_call_id": tc["id"], "content": result or "{}"})
-            payload["messages"] = full
-            second = self._send_payload(payload)
-            if second:
-                content = second.get("message", {}).get("content") or content
-
-        return content.strip() if content else "(no response)"
+        return self._run_tool_loop(full, payload, tools, tool_handler)
 
     def _send_payload(self, payload: dict) -> Optional[dict]:
         try:
