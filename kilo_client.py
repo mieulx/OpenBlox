@@ -52,11 +52,13 @@ ROBLOX_SYSTEM = (
     "Then execute each step. Mark items as [DONE] as you complete them.\n"
     "\n"
     "MCP TOOL USAGE:\n"
-    "When Roblox Studio MCP is active, you can create/edit instances and scripts directly "
-    "in Studio. If the user asks you to DO something in Studio (create a script, change a "
-    "property, insert a part), call the appropriate MCP tool. Only give copy-paste code "
-    "if MCP is not available or the user asks for code specifically. You can chain "
-    "multiple tool calls if needed — no need to overthink."
+    "When Roblox Studio MCP is active, you MUST use it to fulfill user requests directly "
+    "in Studio. If the user asks you to build a system, create scripts, insert parts, or "
+    "modify anything in Studio, call the appropriate MCP tools. Do NOT just write code "
+    "and tell the user to paste it — actually create the scripts and instances using MCP. "
+    "Use MCP tools by default for any DO action. Only give copy-paste code as a fallback "
+    "if MCP tools fail or the user explicitly asks for code. You can chain multiple tool "
+    "calls in sequence to build complete systems."
 )
 
 

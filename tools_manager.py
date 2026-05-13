@@ -65,16 +65,16 @@ class MCPClient:
         try:
             payload = json.dumps(req)
             result = []
+            err = []
             def reader():
-                with self._lock:
+                try:
                     self.process.stdin.write(payload + "\n")
                     self.process.stdin.flush()
                     line = self.process.stdout.readline()
-                    if line.strip():
-                        try:
-                            result.append(json.loads(line.strip()))
-                        except json.JSONDecodeError:
-                            pass
+                    if line and line.strip():
+                        result.append(json.loads(line.strip()))
+                except Exception as e:
+                    err.append(e)
             t = threading.Thread(target=reader, daemon=True)
             t.start()
             t.join(timeout=5)
@@ -208,7 +208,18 @@ class ToolsManager:
         all_tools = []
         for tid, t in self.tool_defs.items():
             if self.is_enabled(tid, session_tools) and tid in self.mcp_clients and self.mcp_clients[tid].is_running():
-                all_tools.extend(self.mcp_clients[tid].tools_to_openai())
+                cached = self._mcp_tools_cache.get(tid)
+                if cached:
+                    for mt in cached:
+                        schema = mt.get("inputSchema", {})
+                        all_tools.append({
+                            "type": "function",
+                            "function": {
+                                "name": mt["name"],
+                                "description": mt.get("description", ""),
+                                "parameters": schema,
+                            },
+                        })
         return all_tools
 
     def handle_tool_call(self, tool_name: str, arguments: dict, session_tools: dict) -> Optional[str]:

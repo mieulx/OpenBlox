@@ -339,6 +339,7 @@ a{color:#58a6ff;text-decoration:none}
 .tool-item:last-child{border-bottom:none}
 .tool-item .tool-info{flex:1}
 .tool-item .tool-name{color:var(--text);font-weight:500}
+.tool-status{font-size:10px;color:var(--cyan);display:block;margin-top:1px}
 .tool-item .tool-desc{font-size:11px;color:var(--text3);margin-top:1px}
 .tool-switch{
   width:30px;height:16px;border-radius:8px;
@@ -455,6 +456,9 @@ a{color:#58a6ff;text-decoration:none}
 }
 .input-hint .sep{color:var(--border2);font-weight:bold}
 .input-hint svg{opacity:0.5;flex-shrink:0}
+#mcp-indicator{color:var(--cyan);display:inline-flex;align-items:center;gap:3px}
+#mcp-indicator.hidden{display:none}
+#mcp-indicator svg{opacity:0.8}
 
 /* ─── Edit Mode ─── */
 .editing .input-box{border-color:var(--cyan);box-shadow:0 0 20px var(--cyan-glow)}

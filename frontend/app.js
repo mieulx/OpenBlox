@@ -590,20 +590,32 @@ async function toggleToolsPanel() {
   }
 }
 
+let _mcpActive = false;
+
+function updateMCPIndicator() {
+  const el = document.getElementById('mcp-indicator');
+  if (el) {
+    el.classList.toggle('hidden', !_mcpActive);
+  }
+}
+
 async function refreshTools() {
   try {
     const d = await api('/api/tools?session_id=' + (curId || ''));
     const el = document.getElementById('tools-list');
+    _mcpActive = false;
     el.innerHTML = d.tools.map(t => {
-      let html = `
+      if (t.enabled && t.mcp_count) _mcpActive = true;
+      return `
         <div class="tool-item">
           <div class="tool-info">
             <div class="tool-name">${esc(t.name)}</div>
+            ${t.enabled && t.mcp_count ? `<span class="tool-status">${t.mcp_count} tools ready</span>` : ''}
           </div>
           <div class="tool-switch ${t.enabled ? 'on' : ''}" onclick="toggleTool('${t.id}')"></div>
         </div>`;
-      return html;
     }).join('');
+    updateMCPIndicator();
   } catch {}
 }
 
