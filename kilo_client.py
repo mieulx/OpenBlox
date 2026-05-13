@@ -58,6 +58,9 @@ class KiloClient:
         self.user_context = user_context
         self.session = requests.Session()
 
+    def is_configured(self) -> bool:
+        return bool(self.api_key)
+
     def _build_system(self, extra_context: str = "") -> str:
         sp = ROBLOX_SYSTEM
         if self.user_context:
