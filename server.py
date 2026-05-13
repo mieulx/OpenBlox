@@ -19,7 +19,7 @@ from tools_manager import ToolsManager
 
 
 app = FastAPI(title="Kilo Roblox Studio Helper")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:8520", "http://127.0.0.1:8520"], allow_methods=["*"], allow_headers=["*"])
 
 wm = WebsiteManager()
 extractor = ContentExtractor(chunk_size=wm.search_config["chunk_size"])
@@ -63,6 +63,10 @@ class EditMessageRequest(BaseModel):
     edit_index: int
 
 
+class ToolToggle(BaseModel):
+    tool_id: str
+
+
 def make_kilo():
     ctx = wm.kilo_config.get("user_context", "")
     return KiloClient(
@@ -80,95 +84,137 @@ async def health():
 
 @app.get("/api/status")
 async def status():
-    return {
-        "configured": make_kilo().is_configured(),
-        "model": make_kilo().model,
-        "sessions": len(store.sessions),
-        "websites": len(wm.websites),
-    }
+    try:
+        return {
+            "configured": make_kilo().is_configured(),
+            "model": make_kilo().model,
+            "sessions": len(store.sessions),
+            "websites": len(wm.websites),
+        }
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.get("/api/config")
 async def get_config():
-    return {
-        "api_key": bool(wm.kilo_config.get("api_key", "")),
-        "model": wm.kilo_config.get("model", "kilo-auto/free"),
-        "temperature": wm.kilo_config.get("temperature", 0.3),
-        "user_context": wm.kilo_config.get("user_context", ""),
-        "max_chunks": wm.search_config.get("max_chunks", 8),
-        "chunk_size": wm.search_config.get("chunk_size", 1500),
-    }
+    try:
+        return {
+            "api_key": bool(wm.kilo_config.get("api_key", "")),
+            "model": wm.kilo_config.get("model", "kilo-auto/free"),
+            "temperature": wm.kilo_config.get("temperature", 0.3),
+            "user_context": wm.kilo_config.get("user_context", ""),
+            "max_chunks": wm.search_config.get("max_chunks", 8),
+            "chunk_size": wm.search_config.get("chunk_size", 1500),
+        }
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.post("/api/config")
 async def save_config(cfg: ConfigUpdate):
-    if cfg.api_key is not None:
-        wm.kilo_config["api_key"] = cfg.api_key
-    if cfg.model is not None:
-        wm.kilo_config["model"] = cfg.model
-    if cfg.temperature is not None:
-        wm.kilo_config["temperature"] = cfg.temperature
-    if cfg.user_context is not None:
-        wm.kilo_config["user_context"] = cfg.user_context
-    if cfg.max_chunks is not None:
-        wm.search_config["max_chunks"] = cfg.max_chunks
-    if cfg.chunk_size is not None:
-        wm.search_config["chunk_size"] = cfg.chunk_size
-    wm.save()
-    return {"ok": True}
+    try:
+        if cfg.api_key is not None:
+            wm.kilo_config["api_key"] = cfg.api_key
+        if cfg.model is not None:
+            wm.kilo_config["model"] = cfg.model
+        if cfg.temperature is not None:
+            wm.kilo_config["temperature"] = cfg.temperature
+        if cfg.user_context is not None:
+            wm.kilo_config["user_context"] = cfg.user_context
+        if cfg.max_chunks is not None:
+            wm.search_config["max_chunks"] = cfg.max_chunks
+        if cfg.chunk_size is not None:
+            wm.search_config["chunk_size"] = cfg.chunk_size
+        wm.save()
+        return {"ok": True}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.get("/api/models")
 async def list_models():
-    all_m, free_m = make_kilo().fetch_models()
-    return {"models": all_m, "free_models": free_m}
+    try:
+        all_m, free_m = make_kilo().fetch_models()
+        return {"models": all_m, "free_models": free_m}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+def _get_session(session_id: str):
+    for s in store.sessions:
+        if s.id == session_id:
+            return s
+    return None
 
 
 @app.get("/api/sessions")
 async def list_sessions():
-    return {
-        "sessions": [s.to_dict() for s in store.sessions],
-        "active_id": store.active_id,
-    }
+    try:
+        return {
+            "sessions": [s.to_dict() for s in store.sessions],
+            "active_id": store.active_id,
+        }
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.post("/api/sessions")
 async def create_session():
-    s = store.new_session()
-    return s.to_dict()
+    try:
+        s = store.new_session()
+        return s.to_dict()
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.delete("/api/sessions/{session_id}")
 async def delete_session(session_id: str):
-    store.delete_session(session_id)
-    return {"ok": True}
+    try:
+        store.delete_session(session_id)
+        return {"ok": True}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.patch("/api/sessions/{session_id}/rename")
 async def rename_session(session_id: str, req: RenameRequest):
-    store.rename_session(session_id, req.title)
-    return {"ok": True}
+    try:
+        store.rename_session(session_id, req.title)
+        return {"ok": True}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.get("/api/sessions/{session_id}/export")
 async def export_session(session_id: str):
-    for s in store.sessions:
-        if s.id == session_id:
-            lines = [f"Kilo Roblox Studio Helper — {s.title}", "=" * 50, ""]
-            for m in s.messages:
-                prefix = "You:" if m.role == "user" else "Assistant:"
-                lines.append(f"{prefix}\n{m.content}\n")
-            return PlainTextResponse("\n".join(lines),
-                headers={"Content-Disposition": f"attachment; filename={s.title}.txt"})
-    raise HTTPException(404, "Session not found")
+    try:
+        s = _get_session(session_id)
+        if not s:
+            raise HTTPException(404, "Session not found")
+        lines = [f"Kilo Roblox Studio Helper — {s.title}", "=" * 50, ""]
+        for m in s.messages:
+            prefix = "You:" if m.role == "user" else "Assistant:"
+            lines.append(f"{prefix}\n{m.content}\n")
+        safe_title = "".join(c for c in s.title if c.isalnum() or c in ' _-').strip() or "chat"
+        return PlainTextResponse("\n".join(lines),
+            headers={"Content-Disposition": f"attachment; filename={safe_title}.txt"})
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.get("/api/sessions/{session_id}")
 async def get_session(session_id: str):
-    for s in store.sessions:
-        if s.id == session_id:
-            return s.to_dict()
-    raise HTTPException(404, "Session not found")
+    try:
+        s = _get_session(session_id)
+        if not s:
+            raise HTTPException(404, "Session not found")
+        return s.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.post("/api/chat")
@@ -234,20 +280,27 @@ async def chat(req: ChatRequest):
 
 @app.get("/api/websites")
 async def list_websites():
-    return {"websites": [{"name": w.name, "url": w.url, "enabled": w.enabled,
-                          "extractor_type": w.extractor_type} for w in wm.websites]}
+    try:
+        return {"websites": [{"name": w.name, "url": w.url, "enabled": w.enabled,
+                              "extractor_type": w.extractor_type} for w in wm.websites]}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.get("/api/tools")
 async def list_tools():
-    return {"tools": tools_mgr.get_tools()}
+    try:
+        return {"tools": tools_mgr.get_tools()}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
-class ToolToggle(BaseModel):
-    tool_id: str
 
 @app.post("/api/tools/toggle")
 async def toggle_tool(req: ToolToggle):
-    return tools_mgr.toggle_tool(req.tool_id)
+    try:
+        return tools_mgr.toggle_tool(req.tool_id)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "frontend")
@@ -256,4 +309,4 @@ app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8520))
     print(f"Server running at http://localhost:{port}")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="127.0.0.1", port=port)

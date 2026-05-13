@@ -19,6 +19,11 @@ class MCPClient:
             expanded = [os.path.expandvars(self.command)]
             for a in self.args:
                 expanded.append(os.path.expandvars(a))
+            # Validate the bat file exists
+            if len(expanded) >= 3 and expanded[0] == "cmd.exe":
+                bat_path = os.path.expandvars(expanded[2])
+                if not os.path.isfile(bat_path):
+                    return False, f"MCP file not found: {bat_path}"
             self.process = subprocess.Popen(
                 expanded,
                 stdin=subprocess.PIPE,
@@ -59,13 +64,21 @@ class MCPClient:
         }
         try:
             payload = json.dumps(req)
-            with self._lock:
-                self.process.stdin.write(payload + "\n")
-                self.process.stdin.flush()
-                line = self.process.stdout.readline()
-            if line.strip():
-                return json.loads(line.strip())
-            return None
+            result = []
+            def reader():
+                with self._lock:
+                    self.process.stdin.write(payload + "\n")
+                    self.process.stdin.flush()
+                    line = self.process.stdout.readline()
+                    if line.strip():
+                        try:
+                            result.append(json.loads(line.strip()))
+                        except json.JSONDecodeError:
+                            pass
+            t = threading.Thread(target=reader, daemon=True)
+            t.start()
+            t.join(timeout=5)
+            return result[0] if result else None
         except Exception:
             return None
 
