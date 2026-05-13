@@ -56,28 +56,29 @@ class MCPClient:
         if not self.process or not self.process.stdin:
             return None
         self._req_id += 1
-        req = {
-            "jsonrpc": "2.0",
-            "id": self._req_id,
-            "method": method,
-            "params": params or {},
-        }
+        req = {"jsonrpc": "2.0", "id": self._req_id, "method": method, "params": params or {}}
         try:
             payload = json.dumps(req)
             result = []
-            err = []
             def reader():
                 try:
                     self.process.stdin.write(payload + "\n")
                     self.process.stdin.flush()
-                    line = self.process.stdout.readline()
-                    if line and line.strip():
-                        result.append(json.loads(line.strip()))
-                except Exception as e:
-                    err.append(e)
+                    buf = ""
+                    while True:
+                        buf += self.process.stdout.readline()
+                        if not buf.strip():
+                            break
+                        try:
+                            result.append(json.loads(buf.strip()))
+                            break
+                        except json.JSONDecodeError:
+                            continue
+                except Exception:
+                    pass
             t = threading.Thread(target=reader, daemon=True)
             t.start()
-            t.join(timeout=5)
+            t.join(timeout=8)
             return result[0] if result else None
         except Exception:
             return None

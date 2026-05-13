@@ -30,7 +30,7 @@ kilo_config = wm.kilo_config
 user_context = kilo_config.get("user_context", "")
 kilo = KiloClient(
     api_key=kilo_config.get("api_key", ""),
-    model=kilo_config.get("model", "kilo-auto/free"),
+    model=kilo_config.get("model", "nvidia/nemotron-3-super-120b-a12b:free"),
     temperature=kilo_config.get("temperature", 0.3),
     user_context=user_context,
 )
@@ -72,7 +72,7 @@ def make_kilo():
     ctx = wm.kilo_config.get("user_context", "")
     return KiloClient(
         api_key=wm.kilo_config.get("api_key", ""),
-        model=wm.kilo_config.get("model", "kilo-auto/free"),
+        model=wm.kilo_config.get("model", "nvidia/nemotron-3-super-120b-a12b:free"),
         temperature=wm.kilo_config.get("temperature", 0.3),
         user_context=ctx,
     )
@@ -101,7 +101,7 @@ async def get_config():
     try:
         return {
             "api_key": bool(wm.kilo_config.get("api_key", "")),
-            "model": wm.kilo_config.get("model", "kilo-auto/free"),
+            "model": wm.kilo_config.get("model", "nvidia/nemotron-3-super-120b-a12b:free"),
             "temperature": wm.kilo_config.get("temperature", 0.3),
             "user_context": wm.kilo_config.get("user_context", ""),
             "max_chunks": wm.search_config.get("max_chunks", 8),

@@ -23,7 +23,7 @@ class WebsiteManager:
         self.kilo_config = {
             "api_key": "",
             "endpoint": "https://api.kilo.ai/api/gateway/chat/completions",
-            "model": "kilo-auto/free",
+            "model": "nvidia/nemotron-3-super-120b-a12b:free",
             "temperature": 0.3,
             "user_context": "",
         }
@@ -109,7 +109,8 @@ class WebsiteManager:
         return [w for w in self.websites if w.enabled]
 
     def update_kilo_config(self, api_key: str = "", endpoint: str = "",
-                           model: str = "kilo-auto/free", temperature: float = 0.3,
+                           model: str = "nvidia/nemotron-3-super-120b-a12b:free",
+                           temperature: float = 0.3,
                            user_context: str = ""):
         self.kilo_config["api_key"] = api_key
         self.kilo_config["endpoint"] = endpoint

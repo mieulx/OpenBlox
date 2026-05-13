@@ -6,7 +6,7 @@ from typing import Optional
 GATEWAY_URL = "https://api.kilo.ai/api/gateway"
 ENDPOINT = f"{GATEWAY_URL}/chat/completions"
 MODELS_ENDPOINT = f"{GATEWAY_URL}/models"
-DEFAULT_MODEL = "kilo-auto/free"
+DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
 
 ROBLOX_SYSTEM = (
     "You are a Roblox Studio expert assistant. Help with LuaU scripting, "
@@ -51,14 +51,16 @@ ROBLOX_SYSTEM = (
     "a full feature), first output a numbered checklist of what you'll do. "
     "Then execute each step. Mark items as [DONE] as you complete them.\n"
     "\n"
-    "MCP TOOL USAGE:\n"
-    "When Roblox Studio MCP is active, you MUST use it to fulfill user requests directly "
-    "in Studio. If the user asks you to build a system, create scripts, insert parts, or "
-    "modify anything in Studio, call the appropriate MCP tools. Do NOT just write code "
-    "and tell the user to paste it — actually create the scripts and instances using MCP. "
-    "Use MCP tools by default for any DO action. Only give copy-paste code as a fallback "
-    "if MCP tools fail or the user explicitly asks for code. You can chain multiple tool "
-    "calls in sequence to build complete systems."
+    "MCP TOOL USAGE — CRITICAL: You have MCP tools available. You MUST call them.\n"
+    "When Roblox Studio MCP is active, call MCP tools for EVERY actionable request:\n"
+    "  - User asks for a script → call the create script tool\n"
+    "  - User asks to make a system → call tools to create all required scripts/instances\n"
+    "  - User asks to insert/modify anything → call the appropriate tool\n"
+    "Do NOT write code blocks as your final answer. Do NOT tell the user to paste code.\n"
+    "Instead, USE THE TOOLS. The MCP will create the scripts directly in Studio.\n"
+    "Only output code as a fallback if tool calls fail. Always try tools first.\n"
+    "You can chain multiple tool calls to build complete systems step by step.\n"
+    "If you're unsure which tool to use, call any relevant tool — doing something is better than nothing."
 )
 
 
@@ -85,8 +87,8 @@ class KiloClient:
 
     HARDCODED_MODELS = [
         {"id": "kilo-auto/free", "name": "kilo-auto/free", "tier": "Auto"},
-        {"id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "name": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "tier": "Light"},
-        {"id": "nvidia/nemotron-3-super-120b-a12b:free", "name": "nvidia/nemotron-3-super-120b-a12b:free", "tier": "Pro"},
+        {"id": "nvidia/nemotron-3-super-120b-a12b:free", "name": "nvidia/nemotron-3-super-120b-a12b:free", "tier": "Apex"},
+        {"id": "arcee-ai/trinity-large-thinking:free", "name": "arcee-ai/trinity-large-thinking:free", "tier": "Rover"},
     ]
 
     def fetch_models(self) -> tuple[list[dict], list[dict]]:

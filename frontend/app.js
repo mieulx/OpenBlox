@@ -71,8 +71,8 @@ function populateModels(all) {
 
 const MODEL_LABELS = {
   'kilo-auto/free': 'Auto',
-  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free': 'Light',
-  'nvidia/nemotron-3-super-120b-a12b:free': 'Pro',
+  'nvidia/nemotron-3-super-120b-a12b:free': 'Apex',
+  'arcee-ai/trinity-large-thinking:free': 'Rover',
 };
 
 async function switchModel(id) {
