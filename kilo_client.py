@@ -66,6 +66,18 @@ class KiloClient:
             sp += f"\n\n{extra_context}"
         return sp
 
+    HARDCODED_MODELS = [
+        {"id": "kilo-auto/free", "name": "kilo-auto/free", "tier": "Auto"},
+        {"id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "name": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "tier": "Light"},
+        {"id": "nvidia/nemotron-3-super-120b-a12b:free", "name": "nvidia/nemotron-3-super-120b-a12b:free", "tier": "Pro"},
+    ]
+
+    def fetch_models(self) -> tuple[list[dict], list[dict]]:
+        return self.HARDCODED_MODELS, self.HARDCODED_MODELS
+
+    def fetch_free_models(self) -> list[dict]:
+        return self.HARDCODED_MODELS
+
     def chat(self, messages: list, max_tokens: int = 4096,
              extra_context: str = "", tools: list = None,
              tool_handler=None) -> Optional[str]:
