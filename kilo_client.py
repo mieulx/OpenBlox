@@ -100,12 +100,23 @@ class KiloClient:
         for _ in range(max_rounds):
             resp = self._send_payload(payload)
             if resp is None:
-                return content or "(no response)"
+                if content:
+                    return content
+                continue
             msg = resp.get("message", {})
-            content = msg.get("content") or content
+            new_content = msg.get("content") or ""
+            if new_content:
+                content = new_content
             tool_calls = msg.get("tool_calls")
             if not tool_calls or not tool_handler:
-                break
+                if content:
+                    break
+                # No content and no tool calls — poke the model to respond
+                full.append({"role": "user", "content": "Please provide your response now."})
+                payload["messages"] = full
+                if tools:
+                    payload["tools"] = tools
+                continue
             full.append(msg)
             for tc in tool_calls:
                 fn = tc.get("function", {})
