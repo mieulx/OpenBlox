@@ -1,6 +1,7 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 
+import asyncio
 import json
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
@@ -326,6 +327,10 @@ async def toggle_tool(req: ToolToggle):
 
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "frontend")
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
+
+# Suppress noisy Windows proactor connection reset errors
+import logging
+logging.getLogger("asyncio").setLevel(logging.CRITICAL)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8520))
