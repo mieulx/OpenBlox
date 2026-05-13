@@ -25,6 +25,7 @@ class WebsiteManager:
             "endpoint": "https://api.kilo.ai/api/gateway/chat/completions",
             "model": "kilo-auto/free",
             "temperature": 0.3,
+            "user_context": "",
         }
         self.search_config = {
             "max_chunks": 8,
