@@ -217,6 +217,15 @@ a{color:#58a6ff;text-decoration:none}
   max-width:100%;margin-right:auto;
   box-shadow:var(--shadow);
 }
+/* ─── Thinking Dropdown ─── */
+details.think-fold{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);margin:6px 0;padding:0;overflow:hidden}
+details.think-fold summary{padding:6px 10px;cursor:pointer;font-size:11px;font-weight:500;color:var(--text2);user-select:none;background:var(--bg3);border-bottom:1px solid transparent;transition:background 0.15s}
+details.think-fold[open] summary{border-bottom-color:var(--border);background:var(--bg4);color:var(--text)}
+details.think-fold summary:hover{color:var(--text)}
+details.think-fold summary::before{content:'\u25b6';display:inline-block;margin-right:6px;font-size:9px;transition:transform 0.2s;color:var(--cyan)}
+details.think-fold[open] summary::before{transform:rotate(90deg)}
+details.think-fold>:not(summary){padding:8px 12px;font-size:12px;line-height:1.5;color:var(--text3);white-space:pre-wrap;word-wrap:break-word}
+
 .msg.bot code{
   background:#0b1019;border:1px solid var(--border);
   border-radius:4px;padding:1px 5px;font-size:13px;color:var(--cyan);

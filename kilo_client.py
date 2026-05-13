@@ -107,13 +107,16 @@ class KiloClient:
                 continue
             msg = resp.get("message", {})
             new_content = msg.get("content") or ""
+            reasoning = msg.get("reasoning") or ""
             if new_content:
+                if reasoning:
+                    escaped = reasoning.replace("</details>", "").replace("</summary>", "")
+                    new_content = f"<details class='think-fold'><summary>Thinking</summary>\n\n{escaped}\n\n</details>\n\n{new_content}"
                 content = new_content
             tool_calls = msg.get("tool_calls")
             if not tool_calls or not tool_handler:
                 if content:
                     break
-                # No content and no tool calls — poke the model to respond
                 full.append({"role": "user", "content": "Please provide your response now."})
                 payload["messages"] = full
                 if tools:
