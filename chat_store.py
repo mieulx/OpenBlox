@@ -1,0 +1,118 @@
+import json
+import os
+import time
+import uuid
+from typing import Optional
+
+DATA_DIR = os.path.join(os.path.dirname(__file__), "chats")
+
+
+class ChatMessage:
+    def __init__(self, role: str, content: str, timestamp: float = 0):
+        self.role = role
+        self.content = content
+        self.timestamp = timestamp or time.time()
+
+    def to_dict(self) -> dict:
+        return {"role": self.role, "content": self.content, "timestamp": self.timestamp}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ChatMessage":
+        return cls(d["role"], d["content"], d.get("timestamp", 0))
+
+
+class ChatSession:
+    def __init__(self, title: str = "New Chat"):
+        self.id = uuid.uuid4().hex[:12]
+        self.title = title
+        self.created = time.time()
+        self.messages: list[ChatMessage] = []
+
+    def add_message(self, role: str, content: str):
+        self.messages.append(ChatMessage(role, content))
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "created": self.created,
+            "messages": [m.to_dict() for m in self.messages],
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ChatSession":
+        s = cls(d.get("title", "Chat"))
+        s.id = d.get("id", uuid.uuid4().hex[:12])
+        s.created = d.get("created", time.time())
+        s.messages = [ChatMessage.from_dict(m) for m in d.get("messages", [])]
+        return s
+
+
+class ChatStore:
+    def __init__(self):
+        os.makedirs(DATA_DIR, exist_ok=True)
+        self.sessions: list[ChatSession] = []
+        self.active_id: Optional[str] = None
+        self._load_all()
+
+    def _path(self, sid: str) -> str:
+        return os.path.join(DATA_DIR, f"{sid}.json")
+
+    def _load_all(self):
+        self.sessions = []
+        if not os.path.isdir(DATA_DIR):
+            return
+        for fname in sorted(os.listdir(DATA_DIR), reverse=True):
+            if fname.endswith(".json"):
+                path = os.path.join(DATA_DIR, fname)
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        self.sessions.append(ChatSession.from_dict(json.load(f)))
+                except (json.JSONDecodeError, KeyError):
+                    pass
+        if not self.sessions:
+            self.new_session()
+
+    def new_session(self) -> ChatSession:
+        session = ChatSession()
+        self.sessions.insert(0, session)
+        self.active_id = session.id
+        self._save(session)
+        return session
+
+    def get_active(self) -> Optional[ChatSession]:
+        for s in self.sessions:
+            if s.id == self.active_id:
+                return s
+        if self.sessions:
+            self.active_id = self.sessions[0].id
+            return self.sessions[0]
+        return self.new_session()
+
+    def switch_to(self, session_id: str):
+        self.active_id = session_id
+
+    def delete_session(self, session_id: str):
+        self.sessions = [s for s in self.sessions if s.id != session_id]
+        path = self._path(session_id)
+        if os.path.exists(path):
+            os.remove(path)
+        if not self.sessions:
+            self.new_session()
+        elif self.active_id == session_id:
+            self.active_id = self.sessions[0].id
+
+    def rename_session(self, session_id: str, title: str):
+        for s in self.sessions:
+            if s.id == session_id:
+                s.title = title
+                self._save(s)
+                break
+
+    def save_session(self, session: ChatSession):
+        self._save(session)
+
+    def _save(self, session: ChatSession):
+        path = self._path(session.id)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(session.to_dict(), f, indent=2)
