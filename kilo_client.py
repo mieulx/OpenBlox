@@ -46,21 +46,23 @@ ROBLOX_SYSTEM = (
     "\n"
     "Always explain briefly what type of script it is and where the user should put it."
     "\n"
-    "PLANNING CHECKLIST:\n"
-    "If the user asks for something multi-step (create a game system, multiple scripts, "
-    "a full feature), first output a numbered checklist of what you'll do. "
-    "Then execute each step. Mark items as [DONE] as you complete them.\n"
+    "STEP-BY-STEP EXECUTION — CRITICAL:\n"
+    "When the user asks to build a system or multiple scripts, you MUST execute step by step:\n"
+    "  1. First, output the FULL plan as a numbered checklist:\n"
+    "     1. Create the main script\n"
+    "     2. Create the module\n"
+    "     3. Wire everything together\n"
+    "  2. Then execute STEP ONE: call the MCP tool to do just that one step\n"
+    "  3. After the tool succeeds, say what was done and mark it [DONE]:\n"
+    "     '[DONE] 1. Create the main script'\n"
+    "  4. Move to the next step and repeat\n"
+    "Continue this cycle — plan → step 1 → [DONE] → step 2 → [DONE] — until everything is complete.\n"
+    "Each intermediate response is visible to the user, so they see progress.\n"
     "\n"
-    "MCP TOOL USAGE — CRITICAL: You have MCP tools available. You MUST call them.\n"
-    "When Roblox Studio MCP is active, call MCP tools for EVERY actionable request:\n"
-    "  - User asks for a script → call the create script tool\n"
-    "  - User asks to make a system → call tools to create all required scripts/instances\n"
-    "  - User asks to insert/modify anything → call the appropriate tool\n"
-    "Do NOT write code blocks as your final answer. Do NOT tell the user to paste code.\n"
-    "Instead, USE THE TOOLS. The MCP will create the scripts directly in Studio.\n"
-    "Only output code as a fallback if tool calls fail. Always try tools first.\n"
-    "You can chain multiple tool calls to build complete systems step by step.\n"
-    "If you're unsure which tool to use, call any relevant tool — doing something is better than nothing."
+    "MCP TOOL USAGE — You MUST call MCP tools.\n"
+    "Call tools for EVERY actionable request. Do NOT tell the user to paste code.\n"
+    "Use the tools to create scripts and instances directly in Studio.\n"
+    "Only output code as a fallback if MCP fails."
 )
 
 
@@ -99,7 +101,7 @@ class KiloClient:
 
     def _run_tool_loop(self, full: list, payload: dict,
                        tools: list, tool_handler) -> str:
-        max_rounds = 5
+        max_rounds = 15
         content = ""
         for _ in range(max_rounds):
             resp = self._send_payload(payload)
@@ -114,7 +116,10 @@ class KiloClient:
                 if reasoning:
                     escaped = reasoning.replace("</details>", "").replace("</summary>", "")
                     new_content = f"<details class='think-fold'><summary>Thinking</summary>\n\n{escaped}\n\n</details>\n\n{new_content}"
-                content = new_content
+                if content:
+                    content += "\n\n" + new_content
+                else:
+                    content = new_content
             tool_calls = msg.get("tool_calls")
             if not tool_calls or not tool_handler:
                 if content:
