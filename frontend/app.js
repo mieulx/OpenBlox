@@ -397,6 +397,68 @@ function highlightLua(code) {
 }
 
 let _uid = 0;
+let _checklistId = 0;
+
+function renderChecklist(text) {
+  const lines = text.split('\n');
+  const result = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (/^\s*(?:\d+[\.\)]|[-*])\s+/.test(lines[i]) || /^\s*[-*]\s*\[[ x]\]/.test(lines[i])) {
+      const items = [];
+      const startIdx = i;
+      while (i < lines.length && (/^\s*(?:\d+[\.\)]|[-*])\s+/.test(lines[i]) || /^\s*[-*]\s*\[[ x]\]/.test(lines[i]))) {
+        const raw = lines[i];
+        let checked = false;
+        let stepText = raw;
+        if (/^\s*[-*]\s*\[[ x]\]/.test(raw)) {
+          checked = /\[x\]/.test(raw);
+          stepText = raw.replace(/^\s*[-*]\s*\[[ x]\]\s*/, '');
+        } else {
+          checked = /\[DONE\]|\[done\]|✓/.test(raw);
+          stepText = raw.replace(/^\s*(?:\d+[\.\)]|[-*])\s*/, '');
+          stepText = stepText.replace(/\s*\[DONE\]|\s*\[done\]|\s*✓/g, '');
+        }
+        if (stepText.trim()) {
+          items.push({ text: stepText.trim(), checked });
+        }
+        i++;
+      }
+      if (items.length >= 2) {
+        const cid = 'cl-' + (_checklistId++);
+        let progress = items.filter(it => it.checked).length;
+        let total = items.length;
+        let pct = Math.round((progress / total) * 100);
+        let html = `<div class="checklist" id="${cid}"><div class="cl-progress"><div class="cl-bar" style="width:${pct}%"></div><span>${progress}/${total}</span></div><div class="cl-items">`;
+        items.forEach((item, idx) => {
+          html += `<label class="cl-item ${item.checked ? 'done' : ''}"><input type="checkbox" ${item.checked ? 'checked' : ''} onchange="toggleChecklistItem(this, '${cid}')"><span class="cl-check"></span><span class="cl-text">${esc(item.text)}</span></label>`;
+        });
+        html += '</div></div>';
+        result.push(html);
+        continue;
+      }
+      i = startIdx;
+    }
+    result.push(lines[i]);
+    i++;
+  }
+  return result.join('\n');
+}
+
+function toggleChecklistItem(cb, cid) {
+  const label = cb.parentElement;
+  label.classList.toggle('done', cb.checked);
+  const cl = document.getElementById(cid);
+  if (!cl) return;
+  const items = cl.querySelectorAll('.cl-item');
+  const done = cl.querySelectorAll('.cl-item.done').length;
+  const total = items.length;
+  const pct = Math.round((done / total) * 100);
+  const bar = cl.querySelector('.cl-bar');
+  const span = cl.querySelector('.cl-progress span');
+  if (bar) bar.style.width = pct + '%';
+  if (span) span.textContent = done + '/' + total;
+}
 
 function fmt(t) {
   t = t.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
@@ -406,6 +468,7 @@ function fmt(t) {
     const rawAttr = code.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '&#10;');
     return `<div class="pre-wrap"><pre id="${id}" data-code="${rawAttr}">${highlighted}</pre><button class="copy-btn" onclick="copyCode('${id}', this)">Copy</button></div>`;
   });
+  t = renderChecklist(t);
   t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
   t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   t = t.replace(/(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)/g, '<em>$1</em>');
