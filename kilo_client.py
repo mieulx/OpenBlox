@@ -67,28 +67,8 @@ class KiloClient:
         return sp
 
     def chat(self, messages: list, max_tokens: int = 4096,
-             extra_context: str = "") -> Optional[str]:
-        if not self.api_key:
-            return None
-
-        full = [{"role": "system", "content": self._build_system(extra_context)}]
-
-    def is_configured(self) -> bool:
-        return bool(self.api_key)
-
-    HARDCODED_MODELS = [
-        {"id": "kilo-auto/free", "name": "kilo-auto/free", "tier": "Auto"},
-        {"id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "name": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", "tier": "Light"},
-        {"id": "nvidia/nemotron-3-super-120b-a12b:free", "name": "nvidia/nemotron-3-super-120b-a12b:free", "tier": "Pro"},
-    ]
-
-    def fetch_models(self) -> tuple[list[dict], list[dict]]:
-        return self.HARDCODED_MODELS, self.HARDCODED_MODELS
-
-    def fetch_free_models(self) -> list[dict]:
-        return self.HARDCODED_MODELS
-
-    def chat(self, messages: list, max_tokens: int = 4096) -> Optional[str]:
+             extra_context: str = "", tools: list = None,
+             tool_handler=None) -> Optional[str]:
         if not self.api_key:
             return None
 
@@ -101,36 +81,40 @@ class KiloClient:
             "temperature": self.temperature,
             "max_tokens": max_tokens,
         }
+        if tools:
+            payload["tools"] = tools
 
-        try:
-            resp = self.session.post(
-                ENDPOINT, json=payload,
-                headers={"Authorization": f"Bearer {self.api_key}",
-                         "Content-Type": "application/json"},
-                timeout=90,
-            )
-            if resp.status_code == 401:
-                return "Auth error: Kilo token rejected. Check your API key in Settings."
-            if resp.status_code == 402:
-                return "Balance error: Add credits to your Kilo account."
-            if resp.status_code == 404:
-                return f"Model '{self.model}' not available. Try 'kilo-auto/free'."
-            resp.raise_for_status()
+        response = self._send_payload(payload)
+        if response is None:
+            return "(no response)"
 
-            msg = resp.json().get("choices", [{}])[0].get("message", {})
-            content = msg.get("content")
-            return content.strip() if content else "(no response)"
+        msg = response.get("message", {})
+        content = msg.get("content")
+        tool_calls = msg.get("tool_calls")
 
-        except requests.Timeout:
-            return "Error: Request timed out."
-        except requests.RequestException as e:
-            return f"Connection error: {e}"
-        except (json.JSONDecodeError, KeyError, IndexError) as e:
-            return f"Response error: {e}"
+        if tool_calls and tool_handler:
+            for tc in tool_calls:
+                fn = tc.get("function", {})
+                name = fn.get("name", "")
+                try:
+                    args = json.loads(fn.get("arguments", "{}"))
+                except json.JSONDecodeError:
+                    args = {}
+                result = tool_handler(name, args)
+                full.append(msg)
+                full.append({"role": "tool", "tool_call_id": tc["id"], "content": result or "{}"})
+            payload["messages"] = full
+            second = self._send_payload(payload)
+            if second:
+                content = second.get("message", {}).get("content") or content
+
+        return content.strip() if content else "(no response)"
 
     def chat_with_context(self, messages: list, context: str,
                           max_tokens: int = 4096,
-                          extra_context: str = "") -> Optional[str]:
+                          extra_context: str = "",
+                          tools: list = None,
+                          tool_handler=None) -> Optional[str]:
         base = self._build_system(extra_context)
         ctx_msg = {
             "role": "system",
@@ -145,24 +129,57 @@ class KiloClient:
             "temperature": self.temperature,
             "max_tokens": max_tokens,
         }
+        if tools:
+            payload["tools"] = tools
 
+        response = self._send_payload(payload)
+        if response is None:
+            return "(no response)"
+
+        msg = response.get("message", {})
+        content = msg.get("content")
+        tool_calls = msg.get("tool_calls")
+
+        if tool_calls and tool_handler:
+            for tc in tool_calls:
+                fn = tc.get("function", {})
+                name = fn.get("name", "")
+                try:
+                    args = json.loads(fn.get("arguments", "{}"))
+                except json.JSONDecodeError:
+                    args = {}
+                result = tool_handler(name, args)
+                full.append(msg)
+                full.append({"role": "tool", "tool_call_id": tc["id"], "content": result or "{}"})
+            payload["messages"] = full
+            second = self._send_payload(payload)
+            if second:
+                content = second.get("message", {}).get("content") or content
+
+        return content.strip() if content else "(no response)"
+
+    def _send_payload(self, payload: dict) -> Optional[dict]:
         try:
             resp = self.session.post(
                 ENDPOINT, json=payload,
                 headers={"Authorization": f"Bearer {self.api_key}",
                          "Content-Type": "application/json"},
-                timeout=90,
+                timeout=120,
             )
             if resp.status_code == 401:
-                return "Auth error: Kilo token rejected."
-            if resp.status_code >= 400:
-                return f"API error (HTTP {resp.status_code})"
+                return {"message": {"content": "Auth error: Kilo token rejected."}}
+            if resp.status_code == 402:
+                return {"message": {"content": "Balance error: Add credits."}}
+            if resp.status_code == 404:
+                return {"message": {"content": f"Model '{self.model}' not available."}}
             resp.raise_for_status()
-            msg = resp.json().get("choices", [{}])[0].get("message", {})
-            content = msg.get("content")
-            return content.strip() if content else "(no response)"
-        except Exception as e:
-            return f"Error: {e}"
+            return resp.json().get("choices", [{}])[0]
+        except requests.Timeout:
+            return {"message": {"content": "Error: Request timed out."}}
+        except requests.RequestException as e:
+            return {"message": {"content": f"Connection error: {e}"}}
+        except (json.JSONDecodeError, KeyError, IndexError) as e:
+            return {"message": {"content": f"Response error: {e}"}}
 
     def test(self) -> tuple[bool, str]:
         if not self.api_key:

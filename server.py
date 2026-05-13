@@ -186,7 +186,6 @@ async def chat(req: ChatRequest):
     if not session:
         session = store.get_active()
 
-    # Edit mode: truncate session at edit_index, then send new message
     if req.edit_index is not None and 0 <= req.edit_index < len(session.messages):
         session.messages = session.messages[:req.edit_index]
         if req.message:
@@ -206,12 +205,18 @@ async def chat(req: ChatRequest):
 
     tool_ctx = tools_mgr.get_enabled_context()
     extra = tool_ctx if tool_ctx else ""
+    openai_tools = tools_mgr.get_openai_tools()
+    tool_handler = (lambda n, a: tools_mgr.handle_tool_call(n, a)) if openai_tools else None
 
     if req.dev_mode and dev_chunks:
         doc_ctx = dev_proc.build_context(dev_chunks)
-        response = kilo_instance.chat_with_context(history, doc_ctx, extra_context=extra)
+        response = kilo_instance.chat_with_context(
+            history, doc_ctx, extra_context=extra,
+            tools=openai_tools or None, tool_handler=tool_handler)
     else:
-        response = kilo_instance.chat(history, extra_context=extra)
+        response = kilo_instance.chat(
+            history, extra_context=extra,
+            tools=openai_tools or None, tool_handler=tool_handler)
 
     if response is None:
         response = "No response from API."

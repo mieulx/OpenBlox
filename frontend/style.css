@@ -350,6 +350,22 @@ a{color:#58a6ff;text-decoration:none}
 }
 .tool-switch.on::after{left:16px;background:var(--cyan);box-shadow:0 0 4px var(--cyan)}
 
+/* MCP Sub-tools */
+.mcp-sublist{
+  padding:0 10px 6px 28px;
+  display:flex;flex-direction:column;gap:2px;
+}
+.mcp-subtool{
+  font-size:11px;color:var(--text3);
+  display:flex;align-items:center;gap:5px;
+}
+.mcp-dot{
+  width:4px;height:4px;border-radius:50%;
+  background:var(--cyan);flex-shrink:0;
+  box-shadow:0 0 3px var(--cyan);
+}
+.mcp-subdesc{font-size:10px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
 /* ─── Modal ─── */
 .overlay{
   position:fixed;inset:0;

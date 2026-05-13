@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import threading
 from typing import Optional
@@ -10,76 +11,115 @@ class MCPClient:
         self.args = args or []
         self.process: Optional[subprocess.Popen] = None
         self._lock = threading.Lock()
+        self._initialized = False
+        self._req_id = 0
 
-    def start(self) -> bool:
+    def start(self) -> tuple[bool, str]:
         try:
+            expanded = [os.path.expandvars(self.command)]
+            for a in self.args:
+                expanded.append(os.path.expandvars(a))
             self.process = subprocess.Popen(
-                [self.command, *self.args],
+                expanded,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
-            return True
+            ok, msg = self._initialize()
+            self._initialized = ok
+            return ok, msg
         except FileNotFoundError:
-            return False
-        except Exception:
-            return False
+            return False, "Command not found"
+        except Exception as e:
+            return False, str(e)
 
     def stop(self):
+        self._initialized = False
         if self.process:
-            self.process.terminate()
+            try:
+                self.process.terminate()
+            except:
+                pass
             self.process = None
 
     def is_running(self) -> bool:
-        return self.process is not None and self.process.poll() is None
+        return self.process is not None and self.process.poll() is None and self._initialized
 
-    def send_request(self, request: dict) -> Optional[dict]:
-        if not self.is_running():
+    def _send(self, method: str, params: dict = None) -> Optional[dict]:
+        if not self.process or not self.process.stdin:
             return None
+        self._req_id += 1
+        req = {
+            "jsonrpc": "2.0",
+            "id": self._req_id,
+            "method": method,
+            "params": params or {},
+        }
         try:
-            payload = json.dumps(request)
-            self.process.stdin.write(payload + "\n")
-            self.process.stdin.flush()
-            line = self.process.stdout.readline()
-            return json.loads(line.strip()) if line.strip() else None
+            payload = json.dumps(req)
+            with self._lock:
+                self.process.stdin.write(payload + "\n")
+                self.process.stdin.flush()
+                line = self.process.stdout.readline()
+            if line.strip():
+                return json.loads(line.strip())
+            return None
         except Exception:
             return None
 
+    def _initialize(self) -> tuple[bool, str]:
+        resp = self._send("initialize", {
+            "protocolVersion": "0.1.0",
+            "capabilities": {},
+            "clientInfo": {"name": "roblox-helper", "version": "1.0"},
+        })
+        if resp and "result" in resp:
+            return True, "Connected"
+        err = resp.get("error", {}).get("message", "No response") if resp else "No response"
+        return False, err
+
     def list_tools(self) -> list[dict]:
-        req = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/list",
-            "params": {},
-        }
-        resp = self.send_request(req)
+        if not self.is_running():
+            return []
+        resp = self._send("tools/list")
         if resp and "result" in resp:
             return resp["result"].get("tools", [])
         return []
 
     def call_tool(self, name: str, arguments: dict) -> Optional[dict]:
-        req = {
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {"name": name, "arguments": arguments},
-        }
-        return self.send_request(req)
+        if not self.is_running():
+            return None
+        return self._send("tools/call", {"name": name, "arguments": arguments})
+
+    def tools_to_openai(self) -> list[dict]:
+        mcp_tools = self.list_tools()
+        result = []
+        for t in mcp_tools:
+            schema = t.get("inputSchema", {})
+            result.append({
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "parameters": schema,
+                },
+            })
+        return result
 
 
 BUILTIN_TOOLS = {
     "roblox_studio_mcp": {
         "name": "Roblox Studio MCP",
-        "description": "Connect to Roblox Studio via MCP to create scripts, manage instances, and edit properties directly.",
+        "description": "Create and edit Roblox instances, scripts, and properties directly in Studio.",
         "command": "cmd.exe",
-        "args": ["/c", r"%LOCALAPPDATA%\Roblox\mcp.bat"],
+        "args": ["/c", "%LOCALAPPDATA%\\Roblox\\mcp.bat"],
         "enabled": False,
     },
     "script_placer": {
         "name": "Script Placer",
-        "description": "Automatically places scripts in the correct Roblox service based on script type.",
+        "description": "Always states script type and correct Roblox service placement for every script.",
         "command": None,
         "args": None,
         "enabled": False,
@@ -91,22 +131,28 @@ class ToolsManager:
     def __init__(self):
         self.tools = {}
         self.mcp_clients = {}
+        self._mcp_tools_cache = {}
         for tid, cfg in BUILTIN_TOOLS.items():
             self.tools[tid] = dict(cfg)
             if cfg.get("command"):
                 self.mcp_clients[tid] = MCPClient(cfg["command"], cfg.get("args"))
 
     def get_tools(self) -> list[dict]:
-        return [
-            {
+        result = []
+        for tid, t in self.tools.items():
+            entry = {
                 "id": tid,
                 "name": t["name"],
                 "description": t["description"],
                 "enabled": t["enabled"],
                 "has_mcp": t.get("command") is not None,
+                "mcp_tools": [],
             }
-            for tid, t in self.tools.items()
-        ]
+            if t["enabled"] and tid in self.mcp_clients and self.mcp_clients[tid].is_running():
+                mcp_tools = self._mcp_tools_cache.get(tid, [])
+                entry["mcp_tools"] = [{"name": mt["name"], "description": mt.get("description", "")} for mt in mcp_tools]
+            result.append(entry)
+        return result
 
     def toggle_tool(self, tool_id: str) -> dict:
         if tool_id not in self.tools:
@@ -116,26 +162,49 @@ class ToolsManager:
         if t["enabled"] and tool_id in self.mcp_clients:
             client = self.mcp_clients[tool_id]
             if not client.is_running():
-                client.start()
+                ok, msg = client.start()
+                if ok:
+                    mcp_tools = client.list_tools()
+                    self._mcp_tools_cache[tool_id] = mcp_tools
+                return {"ok": ok, "enabled": True, "message": msg, "mcp_tools": self._mcp_tools_cache.get(tool_id, [])}
         elif not t["enabled"] and tool_id in self.mcp_clients:
             self.mcp_clients[tool_id].stop()
-        return {"ok": True, "enabled": t["enabled"]}
+            self._mcp_tools_cache.pop(tool_id, None)
+        return {"ok": True, "enabled": t["enabled"], "mcp_tools": []}
 
     def get_enabled_context(self) -> str:
         lines = []
         for tid, t in self.tools.items():
             if t["enabled"]:
                 lines.append(f"- {t['name']}: {t['description']}")
+                if tid in self.mcp_clients and self.mcp_clients[tid].is_running():
+                    mcp_tools = self._mcp_tools_cache.get(tid, [])
+                    for mt in mcp_tools:
+                        desc = mt.get("description", "")
+                        lines.append(f"  MCP tool: {mt['name']} — {desc}")
         if lines:
             return "Active tools:\n" + "\n".join(lines)
         return ""
 
-    def get_mcp_tools(self, tool_id: str) -> list[dict]:
-        if tool_id in self.mcp_clients and self.mcp_clients[tool_id].is_running():
-            return self.mcp_clients[tool_id].list_tools()
-        return []
+    def get_openai_tools(self) -> list[dict]:
+        all_tools = []
+        for tid, t in self.tools.items():
+            if t["enabled"] and tid in self.mcp_clients and self.mcp_clients[tid].is_running():
+                all_tools.extend(self.mcp_clients[tid].tools_to_openai())
+        return all_tools
 
-    def call_mcp_tool(self, tool_id: str, name: str, args: dict) -> Optional[dict]:
-        if tool_id in self.mcp_clients and self.mcp_clients[tool_id].is_running():
-            return self.mcp_clients[tool_id].call_tool(name, args)
+    def handle_tool_call(self, tool_name: str, arguments: dict) -> Optional[str]:
+        for tid, t in self.tools.items():
+            if t["enabled"] and tid in self.mcp_clients and self.mcp_clients[tid].is_running():
+                result = self.mcp_clients[tid].call_tool(tool_name, arguments)
+                if result:
+                    if "result" in result:
+                        r = result["result"]
+                        if isinstance(r, dict):
+                            content = r.get("content", [])
+                            if isinstance(content, list):
+                                return json.dumps([c for c in content if c.get("type") == "text"])
+                            return json.dumps(content)
+                        return json.dumps(r)
+                    return json.dumps(result.get("error", "Tool call failed"))
         return None
