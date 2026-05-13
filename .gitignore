@@ -1,0 +1,4 @@
+__pycache__/
+chats/
+*.pyc
+config.json
