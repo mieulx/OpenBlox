@@ -126,7 +126,7 @@ class MCPClient:
 BUILTIN_TOOLS = {
     "roblox_studio_mcp": {
         "name": "Roblox Integration",
-        "description": "Lets the AI directly create scripts, parts, and modify your Roblox Studio game.",
+        "description": "Lets the AI read the full game hierarchy, list objects, get properties, create and edit scripts and instances in your Roblox Studio game.",
         "command": "cmd.exe",
         "args": ["/c", "%LOCALAPPDATA%\\Roblox\\mcp.bat"],
         "enabled": False,
