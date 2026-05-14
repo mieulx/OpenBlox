@@ -534,6 +534,22 @@ function buildChecklist(messages) {
     `<div class="cp-item ${s.done ? 'done' : ''}"><span class="cp-dot"></span><span class="cp-text">${esc(s.text)}</span></div>`
   ).join('');
   panel.classList.remove('hidden');
+  const head = document.querySelector('.cp-head');
+  if (head) {
+    head.classList.add('collapsed');
+    const count = head.querySelector('.cp-count');
+    if (count) count.textContent = steps.length + ' tasks';
+  }
+  // Collapse body to show only first 2 items
+  body.classList.add('collapsed');
+}
+
+function togglePlan() {
+  const head = document.querySelector('.cp-head');
+  const body = document.getElementById('cp-body');
+  if (!head || !body) return;
+  head.classList.toggle('collapsed');
+  body.classList.toggle('collapsed');
 }
 
 function dismissChecklist() {

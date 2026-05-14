@@ -3,6 +3,7 @@
 html{font-size:15px;scroll-behavior:smooth}
 body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#070b12;color:#c9d1d9;height:100vh;overflow:hidden;line-height:1.5;-webkit-font-smoothing:antialiased}
 code,pre{font-family:'JetBrains Mono','Fira Code','Consolas',monospace}
+button{background:none;border:none;color:inherit;font:inherit;cursor:pointer}
 a{color:#58a6ff;text-decoration:none}
 ::selection{background:rgba(0,200,255,0.25)}
 ::-webkit-scrollbar{width:5px}
@@ -178,16 +179,21 @@ a{color:#58a6ff;text-decoration:none}
 .dev-switch input:checked+.switch-track .switch-knob svg{opacity:1}
 .switch-label{font-size:12px;color:var(--text2);font-weight:400}
 
-/* ─── Plan Panel (attached above input) ─── */
-#checklist-panel{margin:0 20px;max-width:720px;margin-left:auto;margin-right:auto;background:var(--bg2);border:1px solid var(--border);border-bottom:none;border-radius:var(--radius-sm) var(--radius-sm) 0 0}
+/* ─── Plan Panel (floating, collapsible) ─── */
+#checklist-panel{margin:0 20px;max-width:720px;margin-left:auto;margin-right:auto}
 #checklist-panel.hidden{display:none}
-.cp-head{display:flex;align-items:center;gap:6px;padding:5px 10px;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3)}
-.cp-close{margin-left:auto;background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;padding:0 2px;opacity:0.5;line-height:1}
+.cp-head{display:flex;align-items:center;gap:6px;padding:5px 10px;font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);cursor:pointer;user-select:none;border-radius:var(--radius-sm) var(--radius-sm) 0 0;background:var(--bg2);border:1px solid var(--border);border-bottom:1px solid var(--border)}
+.cp-head:hover{color:var(--text)}
+.cp-head .cp-arrow{font-size:8px;transition:transform 0.2s;color:var(--text3)}
+.cp-head.collapsed .cp-arrow{transform:rotate(-90deg)}
+.cp-head .cp-count{font-size:10px;font-weight:400;color:var(--text3);margin-left:4px}
+.cp-close{margin-left:auto;color:var(--text3);font-size:14px;opacity:0.4;padding:0 2px}
 .cp-close:hover{opacity:1;color:var(--text)}
-#cp-body{padding:0 10px 5px}
+#cp-body{background:var(--bg2);border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);padding:4px 10px 6px;max-height:300px;overflow-y:auto}
+#cp-body.collapsed{max-height:72px;overflow:hidden}
 .cp-item{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12.5px;color:var(--text2);border-bottom:1px solid var(--border);border-bottom-color:rgba(48,54,61,0.4)}
 .cp-item:last-child{border-bottom:none}
-.cp-item .cp-dot{width:5px;height:5px;border-radius:50%;background:var(--text3);flex-shrink:0;opacity:0.4;transition:all 0.2s}
+.cp-item .cp-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0;opacity:0.4;transition:all 0.2s;background:var(--text3)}
 .cp-item.done .cp-dot{opacity:1;background:var(--cyan);box-shadow:0 0 4px var(--cyan)}
 .cp-item .cp-text{transition:all 0.15s;color:var(--text2)}
 .cp-item.done .cp-text{color:var(--text3);text-decoration:line-through}
@@ -222,12 +228,23 @@ a{color:#58a6ff;text-decoration:none}
 #main{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
 
 #chat-view{flex:1;overflow-y:auto;padding:0;position:relative}
-#messages{max-width:720px;margin:0 auto;padding:16px 20px 8px}
+#messages{max-width:720px;margin:0 auto;padding:16px 20px 8px;background:transparent}
 
 
 
 /* ─── Messages ─── */
-.msg-group{margin-bottom:8px}
+.msg-group{margin-bottom:8px;position:relative}
+
+/* ─── Pen button ─── */
+.pen-btn{
+  position:absolute;bottom:-2px;right:0;z-index:5;
+  width:24px;height:24px;border-radius:4px;
+  display:none;align-items:center;justify-content:center;
+  color:var(--text3);opacity:0;
+  transition:all 0.12s;
+}
+.msg-group:hover .pen-btn{display:flex;opacity:0.5}
+.pen-btn:hover{opacity:1!important;color:var(--cyan);background:var(--bg3)}
 .msg{padding:10px 14px;line-height:1.6;font-size:14px;white-space:pre-wrap;word-wrap:break-word}
 .msg.user{
   background:var(--user-bg);border:1px solid var(--user-border);
@@ -302,20 +319,22 @@ a{color:#58a6ff;text-decoration:none}
 #input-bar{padding:8px 20px 14px;border-top:1px solid var(--border);background:var(--bg1)}
 .input-box{
   max-width:720px;margin:0 auto;
-  display:flex;gap:4px;align-items:flex-end;
+  display:flex;gap:4px;align-items:center;
   background:var(--bg2);border:1px solid var(--border);
   border-radius:var(--radius);padding:3px 3px 3px 12px;
   transition:border-color 0.2s,box-shadow 0.2s;
+  position:relative;
 }
 .input-box:focus-within{border-color:var(--cyan);box-shadow:0 0 20px rgba(0,212,255,0.06),inset 0 0 20px rgba(0,212,255,0.02)}
 #chat-input{
   flex:1;background:none;border:none;color:var(--text);
   font-family:'Inter',sans-serif;font-size:14px;line-height:1.45;
-  padding:8px 0;resize:none;outline:none;max-height:120px;
+  padding:6px 0;resize:none;outline:none;max-height:120px;
+  align-self:center;
 }
 #chat-input::placeholder{color:var(--text3)}
 #send-btn{
-  width:34px;height:34px;border-radius:var(--radius-sm);
+  width:34px;height:34px;min-height:34px;border-radius:var(--radius-sm);
   border:none;background:var(--cyan);
   color:#070b12;cursor:pointer;
   display:flex;align-items:center;justify-content:center;
@@ -328,34 +347,33 @@ a{color:#58a6ff;text-decoration:none}
 
 /* Tools Button */
 .tools-btn{
-  width:30px;height:30px;border-radius:6px;
+  width:30px;height:30px;min-height:30px;border-radius:6px;
   border:1px solid var(--border);background:var(--bg3);
   color:var(--text3);cursor:pointer;
   display:flex;align-items:center;justify-content:center;
-  transition:all 0.15s;flex-shrink:0;margin:0 2px;
+  transition:all 0.15s;flex-shrink:0;margin:2px;
 }
 .tools-btn:hover{border-color:var(--cyan);color:var(--cyan);background:var(--cyan-dim)}
 .tools-btn.active{border-color:var(--cyan);color:var(--cyan);background:var(--cyan-dim)}
 
-/* Tools Panel (slide-up drawer) */
+/* Tools Panel (floating popup) */
 #tools-panel{
-  max-width:720px;margin:0 auto;width:100%;
+  position:absolute;bottom:100%;left:0;margin-bottom:4px;
+  min-width:240px;max-width:360px;
   background:var(--bg2);border:1px solid var(--border);
-  border-radius:var(--radius-sm) var(--radius-sm) 0 0;
-  border-bottom:none;
-  overflow:hidden;
-  max-height:0;
-  transition:max-height 0.25s ease;
+  border-radius:var(--radius-sm);
+  box-shadow:0 4px 20px rgba(0,0,0,0.4);
+  display:none;z-index:50;
 }
-#tools-panel.open{max-height:160px}
+#tools-panel.open{display:block}
 .tools-panel-head{
   display:flex;align-items:center;justify-content:space-between;
-  padding:5px 10px;font-size:11px;color:var(--text2);font-weight:500;
+  padding:6px 10px;font-size:11px;color:var(--text2);font-weight:500;
   border-bottom:1px solid var(--border);
 }
-.tools-panel-head button{background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;padding:0 3px}
+.tools-panel-head button{color:var(--text3);font-size:14px;padding:0 3px}
 .tools-panel-head button:hover{color:var(--text)}
-.tool-item{display:flex;align-items:center;gap:6px;padding:4px 10px;font-size:12px;color:var(--text2)}
+.tool-item{display:flex;align-items:center;gap:6px;padding:5px 10px;font-size:12px;color:var(--text2)}
 .tool-item .tool-info{flex:1;display:flex;align-items:center;gap:6px}
 .tool-item .tool-name{color:var(--text)}
 .tool-status{font-size:10px;color:var(--cyan)}
@@ -490,15 +508,6 @@ a{color:#58a6ff;text-decoration:none}
 .edit-badge button:hover{color:var(--text)}
 
 /* ─── Pen button ─── */
-.pen-btn{
-  display:none;align-items:center;justify-content:center;
-  background:transparent;border:none;color:var(--text3);
-  cursor:pointer;padding:2px;margin:2px 0 0 auto;width:22px;height:22px;
-  border-radius:4px;transition:all 0.12s;opacity:0.4;
-}
-.msg-group:hover .pen-btn{display:flex;opacity:0.5}
-.pen-btn:hover{opacity:1!important;background:var(--bg3);color:var(--cyan)}
-
 /* ─── Welcome ─── */
 .welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;height:calc(100vh - 160px);text-align:center;gap:10px}
 .welcome .bolt-big{width:48px;height:48px;color:var(--cyan);opacity:0.25;filter:drop-shadow(0 0 20px var(--cyan))}
