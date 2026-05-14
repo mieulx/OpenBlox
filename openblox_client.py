@@ -306,12 +306,21 @@ class OpenBloxClient:
                 except json.JSONDecodeError:
                     args = {}
                 result = tool_handler(name, args)
-                full.append({"role": "tool", "tool_call_id": tc["id"], "content": result or "{}"})
+                # Yield tool output event
+                output_text = ""
                 if result:
                     try:
                         summary = json.loads(result)
                         texts = [item.get("text", "") for item in summary if isinstance(item, dict) and item.get("type") == "text"]
                         if texts:
+                            output_text = texts[0][:200]
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                yield {"type": "tool_output", "tool": name, "output": output_text or "Done."}
+                full.append({"role": "tool", "tool_call_id": tc["id"], "content": result or "{}"})
+                if result:
+                    try:
+                        if output_text:
                             tool_feedback = f"\n\n> **MCP:** Called `{name}` — {texts[0][:200]}"
                             if content:
                                 content += tool_feedback
