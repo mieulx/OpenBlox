@@ -253,14 +253,9 @@ async function send() {
     await refreshSessions();
   }
 
-  // Interrupt previous request if still sending
+  // Block sending while AI is generating — use Stop button instead
   if (sending) {
-    abortFetch();
-    clearTimeout(_sendTimer);
-    document.querySelectorAll('.think').forEach(el => el.remove());
-    sending = false;
-    document.getElementById('send-btn').disabled = false;
-    updateSendBtn();
+    return;
   }
 
   inp.value = ''; inp.style.height = 'auto';
