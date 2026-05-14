@@ -320,6 +320,7 @@ async function send() {
       sending = false;
       const d = await api('/api/compact', { method: 'POST', body: JSON.stringify({ session_id: curId }) });
       if (d.ok) {
+        updateContextBar(d.session || d);
         toast('Context compacted!', 'ok');
         await loadSession(curId);
       } else {
