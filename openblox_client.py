@@ -95,7 +95,6 @@ class OpenBloxClient:
         return sp
 
     HARDCODED_MODELS = [
-        {"id": "kilo-auto/free", "name": "kilo-auto/free", "tier": "Auto"},
         {"id": "nvidia/nemotron-3-super-120b-a12b:free", "name": "nvidia/nemotron-3-super-120b-a12b:free", "tier": "Apex"},
         {"id": "arcee-ai/trinity-large-thinking:free", "name": "arcee-ai/trinity-large-thinking:free", "tier": "Rover"},
     ]
@@ -118,11 +117,7 @@ class OpenBloxClient:
                 continue
             msg = resp.get("message", {})
             new_content = msg.get("content") or ""
-            reasoning = msg.get("reasoning") or ""
             if new_content:
-                if reasoning:
-                    escaped = reasoning.replace("</details>", "").replace("</summary>", "")
-                    new_content = f"<details class='think-fold'><summary>Thinking</summary>\n\n{escaped}\n\n</details>\n\n{new_content}"
                 if content:
                     content += "\n\n" + new_content
                 else:

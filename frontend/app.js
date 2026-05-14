@@ -81,10 +81,13 @@ document.addEventListener('DOMContentLoaded', init);
 function populateModels(all) {
   const picker = $('#model-picker');
   const sModel = $('#s-model');
+  const dev = document.getElementById('dev-mode').checked;
+  _ALL_MODELS.length = 0;
+  _ALL_MODELS.push(...all);
   picker.innerHTML = '';
   sModel.innerHTML = '';
   for (const m of all) {
-    const label = m.tier ? m.tier + ' \u2014 ' + m.id : m.id;
+    const label = dev && m.id ? m.tier + ' \u2014 ' + m.id : m.tier;
     const o1 = document.createElement('option');
     o1.value = m.id; o1.textContent = label;
     picker.appendChild(o1);
@@ -93,10 +96,10 @@ function populateModels(all) {
 }
 
 const MODEL_LABELS = {
-  'kilo-auto/free': 'Auto',
   'nvidia/nemotron-3-super-120b-a12b:free': 'Apex',
   'arcee-ai/trinity-large-thinking:free': 'Rover',
 };
+const _ALL_MODELS = []; // populated by populateModels
 
 async function switchModel(id) {
   $('#s-model').value = id;
@@ -272,13 +275,10 @@ async function send() {
   let timedOut = false;
   _sendTimer = setTimeout(() => {
     timedOut = true;
-    document.getElementById(tid)?.remove();
-    showError('Request timed out.', 'err');
-    msgs.insertAdjacentHTML('beforeend', renderMsg('assistant', '_Request timed out._', -1));
-    scrollDown();
-    sending = false;
-    document.getElementById('send-btn').disabled = false;
-    updateSendBtn();
+    // Show warning but keep waiting — response may still arrive
+    const thinkEl = document.getElementById(tid);
+    if (thinkEl) thinkEl.innerHTML = '<span>Still thinking...</span><span class="d"><span></span><span></span><span></span></span>';
+    showError('Taking longer than expected...', 'warn');
   }, TIMEOUT_MS);
 
   try {
@@ -292,7 +292,6 @@ async function send() {
     });
 
     clearTimeout(_sendTimer);
-    if (timedOut) return;
     if (abortController.signal.aborted) return;
 
     curId = data.session.id;
@@ -311,7 +310,7 @@ async function send() {
     refreshSessions();
   } catch (e) {
     clearTimeout(_sendTimer);
-    if (timedOut || abortController?.signal.aborted) { updateSendBtn(); return; }
+    if (abortController?.signal.aborted) { updateSendBtn(); return; }
     document.getElementById(tid)?.remove();
     const errMsg = e.message.includes('Failed to fetch')
       ? 'Cannot reach server.'
@@ -602,7 +601,16 @@ function showDev(chunks) {
   p.classList.remove('hidden');
 }
 function hideDev() { document.getElementById('dev-panel').classList.add('hidden'); }
-function toggleDev() { if (!document.getElementById('dev-mode').checked) hideDev(); }
+function toggleDev() {
+  if (!document.getElementById('dev-mode').checked) hideDev();
+  const dev = document.getElementById('dev-mode').checked;
+  [ $('#model-picker'), $('#s-model') ].forEach(sel => {
+    for (let i = 0; i < sel.options.length; i++) {
+      const m = _ALL_MODELS.find(x => x.id === sel.options[i].value);
+      if (m) sel.options[i].textContent = dev ? m.tier + ' \u2014 ' + m.id : m.tier;
+    }
+  });
+}
 
 // ─── Welcome ───
 function showWelcome() {
