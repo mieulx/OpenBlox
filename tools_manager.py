@@ -154,6 +154,19 @@ class ToolsManager:
     def is_enabled(self, tool_id: str, session_tools: dict) -> bool:
         return session_tools.get(tool_id, False)
 
+    def _ensure_running(self, tid: str) -> bool:
+        if tid not in self.mcp_clients:
+            return False
+        client = self.mcp_clients[tid]
+        if client.is_running():
+            return True
+        ok, _ = client.start()
+        if ok:
+            tools = client.list_tools()
+            self._mcp_tools_cache[tid] = tools
+            return True
+        return False
+
     def get_tools(self, session_tools: dict = None) -> list[dict]:
         if session_tools is None:
             session_tools = {}
@@ -167,9 +180,10 @@ class ToolsManager:
                 "enabled": enabled,
                 "has_mcp": t.get("command") is not None,
             }
-            if enabled and tid in self.mcp_clients and self.mcp_clients[tid].is_running():
-                mcp_tools = self._mcp_tools_cache.get(tid, [])
-                entry["mcp_count"] = len(mcp_tools)
+            if enabled and tid in self.mcp_clients:
+                if self._ensure_running(tid):
+                    mcp_tools = self._mcp_tools_cache.get(tid, [])
+                    entry["mcp_count"] = len(mcp_tools)
             result.append(entry)
         return result
 
@@ -208,7 +222,9 @@ class ToolsManager:
     def get_openai_tools(self, session_tools: dict) -> list[dict]:
         all_tools = []
         for tid, t in self.tool_defs.items():
-            if self.is_enabled(tid, session_tools) and tid in self.mcp_clients and self.mcp_clients[tid].is_running():
+            if self.is_enabled(tid, session_tools) and tid in self.mcp_clients:
+                if not self._ensure_running(tid):
+                    continue
                 cached = self._mcp_tools_cache.get(tid)
                 if cached:
                     for mt in cached:

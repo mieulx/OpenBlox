@@ -24,12 +24,26 @@ function abortFetch() {
   }
 }
 
+function updateSendBtn() {
+  const btn = document.getElementById('send-btn');
+  if (sending) {
+    btn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 6h12v12H6z" fill="currentColor"/></svg>';
+    btn.onclick = stopThinking;
+    btn.classList.add('stop');
+  } else {
+    btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" fill="currentColor"/></svg>';
+    btn.onclick = send;
+    btn.classList.remove('stop');
+  }
+}
+
 function stopThinking() {
   abortFetch();
   clearTimeout(_sendTimer);
   document.querySelectorAll('.think').forEach(el => el.remove());
   sending = false;
   document.getElementById('send-btn').disabled = false;
+  updateSendBtn();
   document.getElementById('chat-input').focus();
   showError('Stopped by user', 'warn');
 }
@@ -43,7 +57,16 @@ async function init() {
     ]);
     curId = sd.active_id;
     renderSessions(sd.sessions);
-    loadSession(curId);
+    if (curId) {
+      const sess = await api('/api/sessions/' + curId).catch(() => null);
+      if (sess && sess.messages && sess.messages.length) {
+        document.getElementById('messages').innerHTML = sess.messages.map((msg, i) => renderMsg(msg.role, msg.content, i)).join('');
+      } else {
+        showWelcome();
+      }
+    } else {
+      showWelcome();
+    }
     populateModels(md.models || [], md.free_models || []);
     const cfg = await api('/api/config').catch(() => ({}));
     if (cfg.model) {
@@ -103,19 +126,19 @@ async function switchSession(id) {
 
 async function loadSession(id) {
   const m = document.getElementById('messages');
-  if (!id) { m.innerHTML = welcome(); return; }
+  if (!id) { showWelcome(); return; }
   try {
     const d = await api('/api/sessions/' + id);
     m.innerHTML = d.messages.map((msg, i) => renderMsg(msg.role, msg.content, i)).join('');
     scrollDown();
-  } catch { m.innerHTML = welcome(); }
+  } catch { showWelcome(); }
 }
 
 async function newChat() {
   const d = await api('/api/sessions', { method: 'POST' });
   curId = d.id;
   cancelEdit();
-  document.getElementById('messages').innerHTML = welcome();
+  showWelcome();
   refreshSessions();
 }
 
@@ -200,15 +223,21 @@ async function send() {
   const text = inp.value.trim();
   if (!text) return;
 
+  // Auto-create chat if no session
+  if (!curId) {
+    const newSess = await api('/api/sessions', { method: 'POST' });
+    curId = newSess.id;
+    await refreshSessions();
+  }
+
   // Interrupt previous request if still sending
   if (sending) {
     abortFetch();
     clearTimeout(_sendTimer);
-    // Remove old thinking indicator
-    const oldThink = document.querySelector('.think');
-    if (oldThink) oldThink.remove();
+    document.querySelectorAll('.think').forEach(el => el.remove());
     sending = false;
     document.getElementById('send-btn').disabled = false;
+    updateSendBtn();
   }
 
   inp.value = ''; inp.style.height = 'auto';
@@ -216,6 +245,7 @@ async function send() {
   abortController = new AbortController();
   clearError();
   document.getElementById('input-bar').classList.remove('editing');
+  updateSendBtn();
 
   const msgs = document.getElementById('messages');
   const w = msgs.querySelector('.welcome');
@@ -230,21 +260,23 @@ async function send() {
 
   const tid = 't-' + Date.now();
   msgs.insertAdjacentHTML('beforeend',
-    `<div id="${tid}" class="think"><span>Thinking</span><span class="d"><span></span><span></span><span></span></span><button class="stop-btn" onclick="stopThinking()">Stop</button></div>`
+    `<div id="${tid}" class="think"><span>Thinking</span><span class="d"><span></span><span></span><span></span></span></div>`
   );
   scrollDown();
-  document.getElementById('send-btn').disabled = true;
+  document.getElementById('send-btn').disabled = false;
+  updateSendBtn();
 
   const dev = document.getElementById('dev-mode').checked;
   let timedOut = false;
   _sendTimer = setTimeout(() => {
     timedOut = true;
     document.getElementById(tid)?.remove();
-    showError('Request timed out after ' + (TIMEOUT_MS/1000) + 's.', 'err');
+    showError('Request timed out.', 'err');
     msgs.insertAdjacentHTML('beforeend', renderMsg('assistant', '_Request timed out._', -1));
     scrollDown();
     sending = false;
     document.getElementById('send-btn').disabled = false;
+    updateSendBtn();
   }, TIMEOUT_MS);
 
   try {
@@ -276,7 +308,7 @@ async function send() {
     refreshSessions();
   } catch (e) {
     clearTimeout(_sendTimer);
-    if (timedOut || abortController?.signal.aborted) return;
+    if (timedOut || abortController?.signal.aborted) { updateSendBtn(); return; }
     document.getElementById(tid)?.remove();
     const errMsg = e.message.includes('Failed to fetch')
       ? 'Cannot reach server.'
@@ -290,6 +322,7 @@ async function send() {
 
   sending = false;
   document.getElementById('send-btn').disabled = false;
+  updateSendBtn();
   inp.focus();
 }
 
@@ -298,11 +331,12 @@ function renderMsg(role, text, index) {
   const label = isUser ? 'You' : 'Assistant';
   const lc = isUser ? 'user-label' : '';
   const body = isUser ? esc(text) : fmt(text);
-  const click = isUser ? ` onclick="editMessage(${index})" title="Click to edit"` : '';
+  const pen = isUser ? `<button class="pen-btn" onclick="editMessage(${index})" title="Edit message"><svg viewBox="0 0 24 24" width="13" height="13"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/></svg></button>` : '';
   return `
     <div class="msg-group">
       <div class="msg-label ${lc}">${label}</div>
-      <div class="msg ${isUser ? 'user' : 'bot'}"${click}>${body}</div>
+      <div class="msg ${isUser ? 'user' : 'bot'}">${body}</div>
+      ${pen}
     </div>
   `;
 }
@@ -525,6 +559,19 @@ function hideDev() { document.getElementById('dev-panel').classList.add('hidden'
 function toggleDev() { if (!document.getElementById('dev-mode').checked) hideDev(); }
 
 // ─── Welcome ───
+function showWelcome() {
+  const msgs = document.getElementById('messages');
+  msgs.innerHTML = `
+    <div class="welcome">
+      <svg class="bolt-big" viewBox="0 0 24 24">
+        <path d="M13 2L4 14h5v8l9-12h-5z" fill="currentColor"/>
+      </svg>
+      <h1>Kilo Roblox Studio Helper</h1>
+      <p>Ask anything about Roblox Studio.</p>
+    </div>
+  `;
+}
+
 function welcome() {
   return `
     <div class="welcome">
@@ -532,7 +579,7 @@ function welcome() {
         <path d="M13 2L4 14h5v8l9-12h-5z" fill="currentColor"/>
       </svg>
       <h1>Kilo Roblox Studio Helper</h1>
-      <p>Ask anything about Roblox Studio. Toggle Dev to see raw documentation.</p>
+      <p>Ask anything about Roblox Studio.</p>
     </div>
   `;
 }

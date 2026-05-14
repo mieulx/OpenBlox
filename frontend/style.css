@@ -210,14 +210,7 @@ a{color:#58a6ff;text-decoration:none}
 #chat-view{flex:1;overflow-y:auto;padding:0;position:relative}
 #messages{max-width:720px;margin:0 auto;padding:16px 20px 8px}
 
-/* ─── Welcome ─── */
-.welcome{
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  height:calc(100vh - 140px);text-align:center;gap:10px;
-}
-.welcome .bolt-big{width:48px;height:48px;color:var(--cyan);opacity:0.3;filter:drop-shadow(0 0 20px var(--cyan))}
-.welcome h1{font-size:20px;font-weight:600;color:var(--text2);letter-spacing:-0.01em}
-.welcome p{font-size:13px;color:var(--text3);max-width:320px;line-height:1.6}
+
 
 /* ─── Messages ─── */
 .msg-group{margin-bottom:8px}
@@ -280,13 +273,6 @@ details.think-fold>:not(summary){padding:8px 12px;font-size:12px;line-height:1.5
 }
 .think{display:flex;align-items:center;gap:8px;color:var(--text3);font-size:13px;padding:10px 4px}
 .think .d{display:flex;gap:3px}
-.stop-btn{
-  margin-left:auto;padding:3px 10px;font-size:10px;font-weight:500;
-  background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.3);
-  border-radius:4px;color:#ef4444;cursor:pointer;
-  font-family:'Inter',sans-serif;transition:all 0.15s;
-}
-.stop-btn:hover{background:rgba(248,81,73,0.2)}
 
 /* ─── Dev Panel ─── */
 #dev-panel{max-width:720px;margin:0 auto 6px;padding:0 20px}
@@ -331,6 +317,8 @@ details.think-fold>:not(summary){padding:8px 12px;font-size:12px;line-height:1.5
 }
 #send-btn:hover{background:#00e5ff;box-shadow:0 0 14px var(--cyan)}
 #send-btn:disabled{opacity:0.35;cursor:not-allowed;box-shadow:none}
+#send-btn.stop{border-radius:6px;background:var(--bg4);color:var(--text2);border:1px solid var(--border)}
+#send-btn.stop:hover{background:var(--bg3);color:var(--text);border-color:var(--text3);box-shadow:none}
 
 /* Tools Button */
 .tools-btn{
@@ -501,9 +489,23 @@ details.think-fold>:not(summary){padding:8px 12px;font-size:12px;line-height:1.5
 }
 .edit-badge button:hover{color:var(--text)}
 
+/* ─── Pen button ─── */
+.pen-btn{
+  display:none;align-items:center;justify-content:center;
+  background:none;border:none;color:var(--text3);cursor:pointer;
+  padding:2px;margin:2px 0 0 auto;width:24px;height:24px;
+  border-radius:4px;transition:all 0.12s;
+}
+.msg-group:hover .pen-btn{display:flex}
+.pen-btn:hover{background:var(--bg3);color:var(--cyan)}
+
+/* ─── Welcome ─── */
+.welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;height:calc(100vh - 160px);text-align:center;gap:10px}
+.welcome .bolt-big{width:48px;height:48px;color:var(--cyan);opacity:0.25;filter:drop-shadow(0 0 20px var(--cyan))}
+.welcome h1{font-size:22px;font-weight:600;color:var(--text2);letter-spacing:-0.01em}
+.welcome p{font-size:13px;color:var(--text3);max-width:320px;line-height:1.6}
+
 /* ─── Clickable messages ─── */
-.msg.user{cursor:pointer;transition:border-color 0.15s}
-.msg.user:hover{border-color:var(--cyan);box-shadow:0 0 12px var(--cyan-glow)}
 
 /* ─── Rename Modal ─── */
 .modal-sm{width:340px}
