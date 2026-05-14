@@ -149,7 +149,7 @@ class OpenBloxClient:
 
     HARDCODED_MODELS = [
         {"id": "nvidia/nemotron-3-super-120b-a12b:free", "name": "nvidia/nemotron-3-super-120b-a12b:free", "tier": "Apex"},
-        {"id": "arcee-ai/trinity-large-thinking:free", "name": "arcee-ai/trinity-large-thinking:free", "tier": "Rover"},
+        {"id": "x-ai:grok-code-fast-1:optimized:free", "name": "x-ai:grok-code-fast-1:optimized:free", "tier": "Rover"},
     ]
 
     def fetch_models(self) -> tuple[list[dict], list[dict]]:

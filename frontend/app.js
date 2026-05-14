@@ -97,7 +97,7 @@ function populateModels(all) {
 
 const MODEL_LABELS = {
   'nvidia/nemotron-3-super-120b-a12b:free': 'Apex',
-  'arcee-ai/trinity-large-thinking:free': 'Rover',
+  'x-ai:grok-code-fast-1:optimized:free': 'Rover',
 };
 const _ALL_MODELS = []; // populated by populateModels
 

@@ -55,13 +55,13 @@ a{color:#58a6ff;text-decoration:none}
   opacity:0.15;
 }
 .sidebar-brand{
-  display:flex;align-items:center;gap:8px;
+  display:flex;align-items:center;gap:10px;
   padding:16px 14px 12px;
-  font-size:14px;font-weight:600;color:var(--cyan);
-  letter-spacing:-0.01em;
+  font-size:18px;font-weight:300;color:var(--cyan);
+  letter-spacing:-0.02em;
   font-family:var(--font-display);
-  font-weight:300;
 }
+.sidebar-brand svg{width:24px;height:24px}
 .sidebar-brand .bolt{filter:drop-shadow(0 0 6px var(--cyan-glow));flex-shrink:0}
 
 /* Model Picker */
@@ -500,8 +500,9 @@ a{color:#58a6ff;text-decoration:none}
 /* ─── Welcome ─── */
 .welcome{display:flex;flex-direction:column;align-items:center;justify-content:center;height:calc(100vh - 160px);text-align:center;gap:10px}
 .welcome .bolt-big{width:48px;height:48px;color:var(--cyan);opacity:0.25;filter:drop-shadow(0 0 20px var(--cyan))}
-.welcome h1{font-size:26px;font-weight:300;color:var(--text2);letter-spacing:-0.01em;font-family:var(--font-display)}
+.welcome h1{font-size:32px;font-weight:300;color:var(--text2);letter-spacing:-0.02em;font-family:var(--font-display)}
 .welcome p{font-size:13px;color:var(--text3);max-width:320px;line-height:1.6}
+.welcome .bolt-big{width:56px;height:56px}
 
 /* ─── Clickable messages ─── */
 
