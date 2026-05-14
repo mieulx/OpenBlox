@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launcher for Kilo Roblox Studio Helper.
+"""Launcher for OpenBlox.
 Open http://localhost:8520 in your browser after starting.
 """
 
@@ -9,7 +9,7 @@ DIR = os.path.dirname(os.path.abspath(__file__))
 SERVER = os.path.join(DIR, "server.py")
 PORT = 8520
 
-print(f"Starting Kilo Roblox Studio Helper...")
+print(f"Starting OpenBlox...")
 print(f"Open http://localhost:{PORT} in your browser")
 print("Press Ctrl+C to stop the server.\n")
 

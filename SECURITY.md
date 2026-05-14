@@ -1,4 +1,4 @@
-# Security Review — Kilo Roblox Studio Helper
+# Security Review — OpenBlox
 
 ## Summary
 This app runs **locally only** (localhost:8520). It stores an API key locally and communicates with the Kilo AI API. There are no user accounts, no shared databases, and no external network exposure in normal use.

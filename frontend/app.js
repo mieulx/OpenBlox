@@ -566,8 +566,8 @@ function showWelcome() {
       <svg class="bolt-big" viewBox="0 0 24 24">
         <path d="M13 2L4 14h5v8l9-12h-5z" fill="currentColor"/>
       </svg>
-      <h1>Kilo Roblox Studio Helper</h1>
-      <p>Ask anything about Roblox Studio.</p>
+      <h1>OpenBlox</h1>
+      <p>Roblox Studio AI assistant.</p>
     </div>
   `;
 }
@@ -578,8 +578,8 @@ function welcome() {
       <svg class="bolt-big" viewBox="0 0 24 24">
         <path d="M13 2L4 14h5v8l9-12h-5z" fill="currentColor"/>
       </svg>
-      <h1>Kilo Roblox Studio Helper</h1>
-      <p>Ask anything about Roblox Studio.</p>
+      <h1>OpenBlox</h1>
+      <p>Roblox Studio AI assistant.</p>
     </div>
   `;
 }

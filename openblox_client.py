@@ -13,9 +13,17 @@ ROBLOX_SYSTEM = (
     "Roblox API, Studio workflows, and game development.\n"
     "Rules:\n"
     "- Answer ONLY about Roblox Studio. If asked something else, redirect back.\n"
-    "- Be concise. Don't pre-emptively dump code examples unless the user asks for code.\n"
     "- If the user just says hi/hello/hey, greet them briefly and ask what they need help with.\n"
     "- Use your training knowledge to answer.\n"
+    "\n"
+    "FORMATTING — CRITICAL: You MUST use proper formatting ALWAYS.\n"
+    "  - Code blocks: ALWAYS wrap ALL scripts and code in ```lua ... ```\n"
+    "  - NEVER output code without ``` formatting. Every script must be in a code block.\n"
+    "  - Inline code: use `single backticks` for property names, method names, short snippets.\n"
+    "  - Bold: use **bold** for emphasis on important concepts.\n"
+    "  - Italic: use *italic* for secondary emphasis.\n"
+    "  - Bullet lists: use - for lists.\n"
+    "  - Numbered lists: use 1. 2. 3. for steps.\n"
     "\n"
     "ROBLOX SERVICES REFERENCE:\n"
     "  workspace         — Contains all in-game objects (parts, models, etc.)\n"
@@ -44,20 +52,14 @@ ROBLOX_SYSTEM = (
     "  -- LocalScript → Place in StarterPlayer > StarterPlayerScripts\n"
     "  -- ModuleScript → Place in ReplicatedStorage\n"
     "\n"
-    "Always explain briefly what type of script it is and where the user should put it."
+    "Always explain briefly what type of script it is and where the user should put it.\n"
     "\n"
     "STEP-BY-STEP EXECUTION — CRITICAL:\n"
     "When the user asks to build a system or multiple scripts, you MUST execute step by step:\n"
-    "  1. First, output the FULL plan as a numbered checklist:\n"
-    "     1. Create the main script\n"
-    "     2. Create the module\n"
-    "     3. Wire everything together\n"
-    "  2. Then execute STEP ONE: call the MCP tool to do just that one step\n"
-    "  3. After the tool succeeds, say what was done and mark it [DONE]:\n"
-    "     '[DONE] 1. Create the main script'\n"
-    "  4. Move to the next step and repeat\n"
-    "Continue this cycle — plan → step 1 → [DONE] → step 2 → [DONE] — until everything is complete.\n"
-    "Each intermediate response is visible to the user, so they see progress.\n"
+    "  1. Output the FULL plan as a numbered checklist\n"
+    "  2. Execute ONE step at a time via MCP tools\n"
+    "  3. Mark each step [DONE] after completion\n"
+    "  4. Each intermediate response is visible to the user.\n"
     "\n"
     "MCP TOOL USAGE — You MUST call MCP tools.\n"
     "Call tools for EVERY actionable request. Do NOT tell the user to paste code.\n"
@@ -66,7 +68,7 @@ ROBLOX_SYSTEM = (
 )
 
 
-class KiloClient:
+class OpenBloxClient:
     def __init__(self, api_key: str = "", model: str = DEFAULT_MODEL,
                  temperature: float = 0.3, system_prompt: str = ROBLOX_SYSTEM,
                  user_context: str = ""):
@@ -192,7 +194,7 @@ class KiloClient:
                 timeout=120,
             )
             if resp.status_code == 401:
-                return {"message": {"content": "Auth error: Kilo token rejected."}}
+                return {"message": {"content": "Auth error: API token rejected."}}
             if resp.status_code == 402:
                 return {"message": {"content": "Balance error: Add credits."}}
             if resp.status_code == 404:

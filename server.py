@@ -13,13 +13,13 @@ import uvicorn
 
 from website_manager import WebsiteManager
 from extractor import ContentExtractor
-from kilo_client import KiloClient
+from openblox_client import OpenBloxClient
 from chat_store import ChatStore, ChatSession
 from processor import DevProcessor
 from tools_manager import ToolsManager
 
 
-app = FastAPI(title="Kilo Roblox Studio Helper")
+app = FastAPI(title="OpenBlox Roblox Studio Helper")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:8520", "http://127.0.0.1:8520"], allow_methods=["*"], allow_headers=["*"])
 
 wm = WebsiteManager()
@@ -27,12 +27,12 @@ extractor = ContentExtractor(chunk_size=wm.search_config["chunk_size"])
 store = ChatStore()
 dev_proc = DevProcessor(wm, extractor)
 
-kilo_config = wm.kilo_config
-user_context = kilo_config.get("user_context", "")
-kilo = KiloClient(
-    api_key=kilo_config.get("api_key", ""),
-    model=kilo_config.get("model", "nvidia/nemotron-3-super-120b-a12b:free"),
-    temperature=kilo_config.get("temperature", 0.3),
+app_config = wm.openblox_config
+user_context = app_config.get("user_context", "")
+ai_client = OpenBloxClient(
+    api_key=app_config.get("api_key", ""),
+    model=app_config.get("model", "nvidia/nemotron-3-super-120b-a12b:free"),
+    temperature=app_config.get("temperature", 0.3),
     user_context=user_context,
 )
 
@@ -69,12 +69,12 @@ class ToolToggle(BaseModel):
     session_id: Optional[str] = None
 
 
-def make_kilo():
-    ctx = wm.kilo_config.get("user_context", "")
-    return KiloClient(
-        api_key=wm.kilo_config.get("api_key", ""),
-        model=wm.kilo_config.get("model", "nvidia/nemotron-3-super-120b-a12b:free"),
-        temperature=wm.kilo_config.get("temperature", 0.3),
+def make_client():
+    ctx = wm.openblox_config.get("user_context", "")
+    return OpenBloxClient(
+        api_key=wm.openblox_config.get("api_key", ""),
+        model=wm.openblox_config.get("model", "nvidia/nemotron-3-super-120b-a12b:free"),
+        temperature=wm.openblox_config.get("temperature", 0.3),
         user_context=ctx,
     )
 
@@ -88,8 +88,8 @@ async def health():
 async def status():
     try:
         return {
-            "configured": make_kilo().is_configured(),
-            "model": make_kilo().model,
+            "configured": make_client().is_configured(),
+            "model": make_client().model,
             "sessions": len(store.sessions),
             "websites": len(wm.websites),
         }
@@ -101,10 +101,10 @@ async def status():
 async def get_config():
     try:
         return {
-            "api_key": bool(wm.kilo_config.get("api_key", "")),
-            "model": wm.kilo_config.get("model", "nvidia/nemotron-3-super-120b-a12b:free"),
-            "temperature": wm.kilo_config.get("temperature", 0.3),
-            "user_context": wm.kilo_config.get("user_context", ""),
+            "api_key": bool(wm.openblox_config.get("api_key", "")),
+            "model": wm.openblox_config.get("model", "nvidia/nemotron-3-super-120b-a12b:free"),
+            "temperature": wm.openblox_config.get("temperature", 0.3),
+            "user_context": wm.openblox_config.get("user_context", ""),
             "max_chunks": wm.search_config.get("max_chunks", 8),
             "chunk_size": wm.search_config.get("chunk_size", 1500),
         }
@@ -116,13 +116,13 @@ async def get_config():
 async def save_config(cfg: ConfigUpdate):
     try:
         if cfg.api_key is not None:
-            wm.kilo_config["api_key"] = cfg.api_key
+            wm.openblox_config["api_key"] = cfg.api_key
         if cfg.model is not None:
-            wm.kilo_config["model"] = cfg.model
+            wm.openblox_config["model"] = cfg.model
         if cfg.temperature is not None:
-            wm.kilo_config["temperature"] = cfg.temperature
+            wm.openblox_config["temperature"] = cfg.temperature
         if cfg.user_context is not None:
-            wm.kilo_config["user_context"] = cfg.user_context
+            wm.openblox_config["user_context"] = cfg.user_context
         if cfg.max_chunks is not None:
             wm.search_config["max_chunks"] = cfg.max_chunks
         if cfg.chunk_size is not None:
@@ -136,7 +136,7 @@ async def save_config(cfg: ConfigUpdate):
 @app.get("/api/models")
 async def list_models():
     try:
-        all_m, free_m = make_kilo().fetch_models()
+        all_m, free_m = make_client().fetch_models()
         return {"models": all_m, "free_models": free_m}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
@@ -193,7 +193,7 @@ async def export_session(session_id: str):
         s = _get_session(session_id)
         if not s:
             raise HTTPException(404, "Session not found")
-        lines = [f"Kilo Roblox Studio Helper — {s.title}", "=" * 50, ""]
+        lines = [f"OpenBlox — {s.title}", "=" * 50, ""]
         for m in s.messages:
             prefix = "You:" if m.role == "user" else "Assistant:"
             lines.append(f"{prefix}\n{m.content}\n")
@@ -221,8 +221,8 @@ async def get_session(session_id: str):
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
-    kilo_instance = make_kilo()
-    if not kilo_instance.is_configured():
+    ai_client = make_client()
+    if not ai_client.is_configured():
         return JSONResponse(status_code=400, content={"error": "API key not configured."})
 
     session = None
@@ -259,11 +259,11 @@ async def chat(req: ChatRequest):
 
     if req.dev_mode and dev_chunks:
         doc_ctx = dev_proc.build_context(dev_chunks)
-        response = kilo_instance.chat_with_context(
+        response = ai_client.chat_with_context(
             history, doc_ctx, extra_context=extra,
             tools=openai_tools or None, tool_handler=tool_handler)
     else:
-        response = kilo_instance.chat(
+        response = ai_client.chat(
             history, extra_context=extra,
             tools=openai_tools or None, tool_handler=tool_handler)
 
