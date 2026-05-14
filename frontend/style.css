@@ -234,6 +234,8 @@ a{color:#58a6ff;text-decoration:none}
 }
 .msg-group:hover .pen-btn{display:flex;opacity:0.5}
 .pen-btn:hover{opacity:1!important;color:var(--cyan);background:var(--bg3)}
+.expand-btn{display:block;margin:4px auto;padding:4px 16px;font-size:11px;font-weight:500;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text2);cursor:pointer}
+.expand-btn:hover{background:var(--bg4);color:var(--text)}
 .msg{padding:10px 14px;line-height:1.6;font-size:14px;white-space:pre-wrap;word-wrap:break-word}
 .msg.user{
   background:var(--user-bg);border:1px solid var(--user-border);

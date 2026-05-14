@@ -24,6 +24,26 @@ function abortFetch() {
   }
 }
 
+function collapseLongMessages() {
+  document.querySelectorAll('.msg.bot').forEach(el => {
+    if (el.scrollHeight > 500 && !el.dataset.collapsed) {
+      el.dataset.collapsed = '1';
+      el.style.maxHeight = '400px';
+      el.style.overflow = 'hidden';
+      el.style.position = 'relative';
+      const btn = document.createElement('button');
+      btn.textContent = 'Show all';
+      btn.className = 'expand-btn';
+      btn.onclick = function() {
+        el.style.maxHeight = '';
+        el.style.overflow = '';
+        btn.remove();
+      };
+      el.parentElement.appendChild(btn);
+    }
+  });
+}
+
 function updateContextBar(sess) {
   const el = document.getElementById('ctx-bar');
   if (!el || !sess) { return; }
@@ -171,6 +191,7 @@ async function loadSession(id) {
   try {
     const d = await api('/api/sessions/' + id);
     m.innerHTML = d.messages.map((msg, i) => renderMsg(msg.role, msg.content, i, msg.timestamp)).join('');
+    collapseLongMessages();
     // Restore per-chat model
     if (d.model) {
       $('#model-picker').value = d.model;
@@ -382,6 +403,7 @@ async function send() {
             if (abortController.signal.aborted) return;
             const sess = event.session;
             msgs.innerHTML = sess.messages.map((msg, i) => renderMsg(msg.role, msg.content, i, msg.timestamp)).join('');
+            collapseLongMessages();
             updateContextBar(sess);
             scrollDown();
             refreshSessions();
