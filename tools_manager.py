@@ -131,6 +131,13 @@ BUILTIN_TOOLS = {
         "args": ["/c", "%LOCALAPPDATA%\\Roblox\\mcp.bat"],
         "enabled": False,
     },
+    "advanced_thinking": {
+        "name": "Advanced Thinking",
+        "description": "After each response, the AI reviews its own work and improves it before continuing.",
+        "command": None,
+        "args": None,
+        "enabled": False,
+    },
     "script_placer": {
         "name": "Script Placer",
         "description": "Tells you exactly where to put every script (ServerScriptService, StarterPlayer, etc.).",

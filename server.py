@@ -256,16 +256,19 @@ async def chat(req: ChatRequest):
     extra = tool_ctx if tool_ctx else ""
     openai_tools = tools_mgr.get_openai_tools(st)
     tool_handler = (lambda n, a: tools_mgr.handle_tool_call(n, a, st)) if openai_tools else None
+    advanced = st.get("advanced_thinking", False)
 
     if req.dev_mode and dev_chunks:
         doc_ctx = dev_proc.build_context(dev_chunks)
         response = ai_client.chat_with_context(
             history, doc_ctx, extra_context=extra,
-            tools=openai_tools or None, tool_handler=tool_handler)
+            tools=openai_tools or None, tool_handler=tool_handler,
+            advanced_thinking=advanced)
     else:
         response = ai_client.chat(
             history, extra_context=extra,
-            tools=openai_tools or None, tool_handler=tool_handler)
+            tools=openai_tools or None, tool_handler=tool_handler,
+            advanced_thinking=advanced)
 
     if response is None:
         response = "No response from API."

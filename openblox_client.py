@@ -106,9 +106,11 @@ class OpenBloxClient:
         return self.HARDCODED_MODELS
 
     def _run_tool_loop(self, full: list, payload: dict,
-                       tools: list, tool_handler) -> str:
+                       tools: list, tool_handler,
+                       advanced_thinking: bool = False) -> str:
         max_rounds = 15
         content = ""
+        reviewed = False
         for _ in range(max_rounds):
             resp = self._send_payload(payload)
             if resp is None:
@@ -125,6 +127,13 @@ class OpenBloxClient:
             tool_calls = msg.get("tool_calls")
             if not tool_calls or not tool_handler:
                 if content:
+                    if advanced_thinking and not reviewed:
+                        reviewed = True
+                        full.append({"role": "user", "content": "Review what you just did. Check for errors, improvements, or missing details. Then provide a final improved response."})
+                        payload["messages"] = full
+                        if tools:
+                            payload["tools"] = tools
+                        continue
                     break
                 full.append({"role": "user", "content": "Please provide your response now."})
                 payload["messages"] = full
@@ -160,7 +169,8 @@ class OpenBloxClient:
 
     def chat(self, messages: list, max_tokens: int = 4096,
              extra_context: str = "", tools: list = None,
-             tool_handler=None) -> Optional[str]:
+             tool_handler=None,
+             advanced_thinking: bool = False) -> Optional[str]:
         if not self.api_key:
             return None
         full = [{"role": "system", "content": self._build_system(extra_context)}]
@@ -173,13 +183,14 @@ class OpenBloxClient:
         }
         if tools:
             payload["tools"] = tools
-        return self._run_tool_loop(full, payload, tools, tool_handler)
+        return self._run_tool_loop(full, payload, tools, tool_handler, advanced_thinking)
 
     def chat_with_context(self, messages: list, context: str,
                           max_tokens: int = 4096,
                           extra_context: str = "",
                           tools: list = None,
-                          tool_handler=None) -> Optional[str]:
+                          tool_handler=None,
+                          advanced_thinking: bool = False) -> Optional[str]:
         base = self._build_system(extra_context)
         ctx_msg = {
             "role": "system",
@@ -195,7 +206,7 @@ class OpenBloxClient:
         }
         if tools:
             payload["tools"] = tools
-        return self._run_tool_loop(full, payload, tools, tool_handler)
+        return self._run_tool_loop(full, payload, tools, tool_handler, advanced_thinking)
 
     def _send_payload(self, payload: dict) -> Optional[dict]:
         try:
