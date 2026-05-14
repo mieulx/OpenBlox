@@ -389,11 +389,12 @@ async function send() {
             }
           } else if (event.type === 'tool') {
             if (thinkingEl) {
-              thinkingEl.innerHTML += `<div style="color:var(--cyan);font-size:11px;margin-top:3px">▸ <strong>${esc(event.tool)}</strong> <span style="color:var(--text3)">through</span> <strong>${esc(event.integration)}</strong></div>`;
+              thinkingEl.innerHTML += `<div class="tl-call"><span class="tl-badge">${esc(event.tool)}</span></div>`;
             }
           } else if (event.type === 'tool_output') {
             if (thinkingEl) {
-              thinkingEl.innerHTML += `<div style="color:var(--text3);font-size:10.5px;padding-left:14px;margin-bottom:2px">${esc(event.output)}</div>`;
+              const out = esc(event.output);
+              if (out) thinkingEl.innerHTML += `<div class="tl-out">${out}</div>`;
             }
           } else if (event.type === 'done') {
             thinkingEl?.remove();
