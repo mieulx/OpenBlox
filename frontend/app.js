@@ -84,6 +84,9 @@ async function init() {
       $('#s-model').value = cfg.model;
     }
     if (cfg.user_context) $('#s-context').value = cfg.user_context;
+    const ver = await api('/api/version').catch(() => ({ version: '' }));
+    const vEl = document.getElementById('version-display');
+    if (vEl && ver.version) vEl.textContent = 'v' + ver.version;
   } catch (e) { toast('Failed to load: ' + e.message, 'err'); }
 }
 document.addEventListener('DOMContentLoaded', init);

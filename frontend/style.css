@@ -202,6 +202,8 @@ a{color:#58a6ff;text-decoration:none}
 .cl-text{font-size:13px;line-height:1.4;color:var(--text);transition:all 0.15s}
 .cl-item.done .cl-text{color:var(--text3);text-decoration:line-through}
 
+.sidebar-version{font-size:10px;color:var(--text3);text-align:center;padding:4px 10px 2px;opacity:0.4}
+
 .btn-sidebar{
   padding:7px 10px;background:var(--bg3);border:none;
   border-radius:var(--radius-sm);

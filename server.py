@@ -84,6 +84,15 @@ async def health():
     return {"ok": True}
 
 
+VERSION_FILE = os.path.join(os.path.dirname(__file__), "version")
+VERSION = open(VERSION_FILE, "r").read().strip() if os.path.exists(VERSION_FILE) else "0.0.0"
+
+
+@app.get("/api/version")
+async def get_version():
+    return {"version": VERSION}
+
+
 @app.get("/api/status")
 async def status():
     try:
