@@ -371,10 +371,14 @@ async function send() {
   let timedOut = false;
   _sendTimer = setTimeout(() => {
     timedOut = true;
-    // Show warning but keep waiting — response may still arrive
     const thinkEl = document.getElementById(tid);
     if (thinkEl) thinkEl.innerHTML = '<span>Still thinking...</span><span class="d"><span></span><span></span><span></span></span>';
     showError('Taking longer than expected...', 'warn');
+    // Third phase: after another 60s
+    setTimeout(() => {
+      const el2 = document.getElementById(tid);
+      if (el2) el2.innerHTML = '<span>Still thinking, really</span><span class="d"><span></span><span></span><span></span></span>';
+    }, 60000);
   }, TIMEOUT_MS);
 
   let accumulatedContent = '';
