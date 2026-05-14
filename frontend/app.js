@@ -293,7 +293,6 @@ async function send() {
     clearTimeout(_sendTimer);
     if (abortController.signal.aborted) return;
 
-    curId = data.session.id;
     document.getElementById(tid)?.remove();
 
     if (dev && data.dev_chunks.length) {
@@ -302,8 +301,8 @@ async function send() {
       hideDev();
     }
 
-    const sess = await api('/api/sessions/' + curId);
-    msgs.innerHTML = sess.messages.map((msg, i) => renderMsg(msg.role, msg.content, i)).join('');
+    const sess = data.session;
+    msgs.innerHTML = sess.messages.map((msg, i) => renderMsg(msg.role, msg.content, i, msg.timestamp)).join('');
     scrollDown();
     refreshSessions();
   } catch (e) {
@@ -445,10 +444,12 @@ function renderChecklist(text) {
   const result = [];
   let i = 0;
   while (i < lines.length) {
-    if (/^\s*(?:\d+[\.\)]|[-*])\s+/.test(lines[i]) || /^\s*[-*]\s*\[[ x]\]/.test(lines[i])) {
+    const stepRe = /^\s*(?:\[DONE\]\s*)?(?:\d+[\.\)]|[-*])\s+/;
+    const taskRe = /^\s*[-*]\s*\[[ x]\]/;
+    if (stepRe.test(lines[i]) || taskRe.test(lines[i])) {
       const items = [];
       const startIdx = i;
-      while (i < lines.length && (/^\s*(?:\d+[\.\)]|[-*])\s+/.test(lines[i]) || /^\s*[-*]\s*\[[ x]\]/.test(lines[i]))) {
+      while (i < lines.length && (stepRe.test(lines[i]) || taskRe.test(lines[i]))) {
         const raw = lines[i];
         let checked = false;
         let stepText = raw;
