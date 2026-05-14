@@ -152,7 +152,7 @@ function renderSessions(list) {
         `<div class="session-item ${s.id === curId ? 'active' : ''}"
              onclick="switchSession('${s.id}')"
              ondblclick="openRename('${s.id}')">
-          <span title="${esc(s.title)}">${esc(s.title.length > 15 ? s.title.slice(0, 15) + '..' : s.title)}</span>
+          <span title="${esc(s.title)}">${esc(s.title.length > 24 ? s.title.slice(0, 24) + '..' : s.title)}</span>
           <button class="del" onclick="event.stopPropagation(); delSession('${s.id}')">&times;</button>
         </div>`
       ).join('');
