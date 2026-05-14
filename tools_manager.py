@@ -30,6 +30,8 @@ class MCPClient:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
             ok, msg = self._initialize()
