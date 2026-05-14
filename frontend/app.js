@@ -71,7 +71,7 @@ function updateSendBtn() {
 function stopThinking() {
   abortFetch();
   clearTimeout(_sendTimer);
-  hideThinkBar();
+  removeThinkFold();
   sending = false;
   document.getElementById('send-btn').disabled = false;
   updateSendBtn();
@@ -289,43 +289,33 @@ function editMessage(index) {
   scrollDown();
 }
 
-// ─── Thinking Bar ───
-function showThinkBar() {
-  const bar = document.getElementById('think-bar');
-  const body = document.getElementById('tb-body');
-  const steps = document.getElementById('tb-steps');
-  bar.classList.remove('hidden');
-  body.classList.add('collapsed');
-  steps.innerHTML = '';
-  document.querySelector('.tb-head').classList.add('collapsed');
-}
-
-function hideThinkBar() {
-  document.getElementById('think-bar').classList.add('hidden');
-}
+let _thinkingTid = null;
 
 function setThinkStatus(text) {
-  const el = document.querySelector('.tb-status');
+  if (!_thinkingTid) return;
+  const el = document.getElementById('tf-status-' + _thinkingTid);
   if (el) el.textContent = text;
 }
 
 function addThinkStep(type, text) {
-  const steps = document.getElementById('tb-steps');
+  if (!_thinkingTid) return;
+  const steps = document.getElementById('tf-steps-' + _thinkingTid);
   if (!steps) return;
   const cls = type === 'tool' ? 'accent' : type === 'output' ? 'dim' : '';
   const label = type === 'tool' ? '▸ ' : '';
-  steps.innerHTML += `<div class="tb-step"><span class="${cls}">${label}${esc(text)}</span></div>`;
-  // Auto scroll to bottom
-  const body = document.getElementById('tb-body');
-  if (body) body.scrollTop = body.scrollHeight;
+  steps.innerHTML += `<div class="tf-step"><span class="${cls}">${label}${esc(text)}</span></div>`;
 }
 
-function toggleThinkBar() {
-  const head = document.querySelector('.tb-head');
-  const body = document.getElementById('tb-body');
-  if (!head || !body) return;
-  head.classList.toggle('collapsed');
-  body.classList.toggle('collapsed');
+function removeThinkFold() {
+  if (!_thinkingTid) return;
+  const el = document.getElementById(_thinkingTid);
+  if (el) el.remove();
+  _thinkingTid = null;
+}
+
+function toggleThinkFold(tid) {
+  const el = document.getElementById(tid);
+  if (el) el.classList.toggle('open');
 }
 
 function cancelEdit() {
@@ -398,7 +388,20 @@ async function send() {
   }
   editingIndex = null;
 
-  showThinkBar();
+  _thinkingTid = 'think-' + Date.now();
+  msgs.insertAdjacentHTML('beforeend',
+    `<div id="${_thinkingTid}" class="think-fold">
+      <div class="tf-head" onclick="toggleThinkFold('${_thinkingTid}')">
+        <span class="tf-arrow">▶</span>
+        <span class="tf-status" id="tf-status-${_thinkingTid}">Thinking</span>
+        <span class="tf-dots"><span></span><span></span><span></span></span>
+      </div>
+      <div class="tf-body" id="tf-body-${_thinkingTid}">
+        <div class="tf-steps" id="tf-steps-${_thinkingTid}"></div>
+      </div>
+    </div>`
+  );
+  scrollDown();
   document.getElementById('send-btn').disabled = false;
   updateSendBtn();
 
@@ -406,9 +409,17 @@ async function send() {
   let timedOut = false;
   _sendTimer = setTimeout(() => {
     timedOut = true;
-    setThinkStatus('Still thinking...');
+    if (_thinkingTid) {
+      const el = document.getElementById('tf-status-' + _thinkingTid);
+      if (el) el.textContent = 'Still thinking...';
+    }
     showError('Taking longer than expected...', 'warn');
-    setTimeout(() => setThinkStatus('Still thinking, really'), 60000);
+    setTimeout(() => {
+      if (_thinkingTid) {
+        const el = document.getElementById('tf-status-' + _thinkingTid);
+        if (el) el.textContent = 'Still thinking, really';
+      }
+    }, 60000);
   }, TIMEOUT_MS);
 
   let accumulatedContent = '';
@@ -441,7 +452,6 @@ async function send() {
           const event = JSON.parse(line.slice(6));
           if (event.type === 'thinking') {
             accumulatedContent = event.content;
-            setThinkStatus(event.content.slice(0, 60) + (event.content.length > 60 ? '...' : ''));
             addThinkStep('text', event.content.slice(0, 80));
           } else if (event.type === 'dev') {
             if (event.chunks && event.chunks.length) {
@@ -455,7 +465,7 @@ async function send() {
             const out = event.output;
             if (out) addThinkStep('output', out.slice(0, 120));
           } else if (event.type === 'done') {
-            hideThinkBar();
+            removeThinkFold();
             accumulatedContent = event.content || '(no response)';
           } else if (event.type === 'session') {
             clearTimeout(_sendTimer);
@@ -468,7 +478,7 @@ async function send() {
             refreshSessions();
           } else if (event.type === 'error') {
             clearTimeout(_sendTimer);
-            hideThinkBar();
+            removeThinkFold();
             showError(event.content, 'err');
             msgs.insertAdjacentHTML('beforeend', renderMsg('assistant', '_Error: ' + esc(event.content) + '_', -1));
             scrollDown();
@@ -479,7 +489,7 @@ async function send() {
   } catch (e) {
     clearTimeout(_sendTimer);
     if (abortController?.signal.aborted) { updateSendBtn(); return; }
-    hideThinkBar();
+    removeThinkFold();
     const errMsg = e.message;
     showError(errMsg, 'err');
     msgs.insertAdjacentHTML('beforeend', renderMsg('assistant', '_Error: ' + esc(errMsg) + '_', -1));
