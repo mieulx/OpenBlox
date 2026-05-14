@@ -125,15 +125,15 @@ class MCPClient:
 
 BUILTIN_TOOLS = {
     "roblox_studio_mcp": {
-        "name": "Roblox Studio MCP",
-        "description": "Create and edit Roblox instances, scripts, and properties directly in Studio.",
+        "name": "Roblox Integration",
+        "description": "Lets the AI directly create scripts, parts, and modify your Roblox Studio game.",
         "command": "cmd.exe",
         "args": ["/c", "%LOCALAPPDATA%\\Roblox\\mcp.bat"],
         "enabled": False,
     },
     "script_placer": {
         "name": "Script Placer",
-        "description": "Always states script type and correct Roblox service placement for every script.",
+        "description": "Tells you exactly where to put every script (ServerScriptService, StarterPlayer, etc.).",
         "command": None,
         "args": None,
         "enabled": False,

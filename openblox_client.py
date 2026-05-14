@@ -63,6 +63,8 @@ ROBLOX_SYSTEM = (
     "\n"
     "MCP TOOL USAGE — You MUST call MCP tools.\n"
     "Call tools for EVERY actionable request. Do NOT tell the user to paste code.\n"
+    "Always mention what tool you're calling and the result before continuing.\n"
+    "Example: \"Creating the main script...\" then call the tool, then \"Script created.\"\n"
     "Use the tools to create scripts and instances directly in Studio.\n"
     "Only output code as a fallback if MCP fails."
 )
@@ -141,6 +143,18 @@ class OpenBloxClient:
                     args = {}
                 result = tool_handler(name, args)
                 full.append({"role": "tool", "tool_call_id": tc["id"], "content": result or "{}"})
+                if result:
+                    try:
+                        summary = json.loads(result)
+                        texts = [item.get("text", "") for item in summary if isinstance(item, dict) and item.get("type") == "text"]
+                        if texts:
+                            tool_feedback = f"\n\n> **MCP:** Called `{name}` — {texts[0][:200]}"
+                            if content:
+                                content += tool_feedback
+                            else:
+                                content = tool_feedback.strip()
+                    except (json.JSONDecodeError, TypeError):
+                        pass
             payload["messages"] = full
             if tools:
                 payload["tools"] = tools
