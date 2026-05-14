@@ -480,6 +480,11 @@ a{color:#58a6ff;text-decoration:none}
   font-size:11px;color:var(--text3);
 }
 .input-hint .sep{color:var(--border2);font-weight:bold}
+.ctx-bar{display:inline-flex;align-items:center;gap:4px;position:relative;height:12px;min-width:80px;background:var(--bg3);border-radius:6px;overflow:hidden;vertical-align:middle;margin-left:4px}
+.ctx-fill{position:absolute;left:0;top:0;height:100%;background:var(--cyan);border-radius:6px;transition:width 0.3s;opacity:0.5}
+.ctx-bar.ctx-warn .ctx-fill{background:#facc15;opacity:0.7}
+.ctx-bar.ctx-high .ctx-fill{background:#ef4444;opacity:0.8}
+.ctx-text{position:relative;z-index:1;font-size:9px;color:var(--text3);padding:0 5px;white-space:nowrap}
 
 /* ─── Edit Mode ─── */
 .editing .input-box{border-color:var(--cyan);box-shadow:0 0 20px var(--cyan-glow)}

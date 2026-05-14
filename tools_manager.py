@@ -138,6 +138,13 @@ BUILTIN_TOOLS = {
         "args": None,
         "enabled": False,
     },
+    "context_compactor": {
+        "name": "Context Compactor",
+        "description": "Automatically summarizes old messages when context gets full, preventing the AI from forgetting earlier parts of the conversation.",
+        "command": None,
+        "args": None,
+        "enabled": True,
+    },
     "script_placer": {
         "name": "Script Placer",
         "description": "Tells you exactly where to put every script (ServerScriptService, StarterPlayer, etc.).",
@@ -244,8 +251,18 @@ class ToolsManager:
                                 "parameters": schema,
                             },
                         })
+        # Add context compactor as a virtual tool if enabled
+        if self.is_enabled("context_compactor", session_tools):
+            all_tools.append({
+                "type": "function",
+                "function": {
+                    "name": "compact_context",
+                    "description": "Summarize the conversation to free up context space. Call this when the conversation is getting very long or when you need to remember earlier details.",
+                    "parameters": {"type": "object", "properties": {}, "required": []},
+                },
+            })
         return all_tools
-
+    
     def handle_tool_call(self, tool_name: str, arguments: dict, session_tools: dict) -> Optional[str]:
         for tid in self.tool_defs:
             if self.is_enabled(tid, session_tools) and tid in self.mcp_clients and self.mcp_clients[tid].is_running():

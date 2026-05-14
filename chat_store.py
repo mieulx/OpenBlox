@@ -21,6 +21,17 @@ class ChatMessage:
         return cls(d["role"], d["content"], d.get("timestamp", 0))
 
 
+MODEL_CONTEXTS = {
+    "nvidia/nemotron-3-super-120b-a12b:free": 262144,
+    "x-ai:grok-code-fast-1:optimized:free": 131072,
+    "kilo-auto/free": 128000,
+}
+DEFAULT_CONTEXT = 128000
+
+def estimate_tokens(text: str) -> int:
+    return len(text) // 4 + 1
+
+
 class ChatSession:
     def __init__(self, title: str = "New Chat"):
         self.id = uuid.uuid4().hex[:12]
@@ -29,10 +40,28 @@ class ChatSession:
         self.updated = time.time()
         self.messages: list[ChatMessage] = []
         self.tools: dict[str, bool] = {}
+        self.model: str = ""
 
     def add_message(self, role: str, content: str):
         self.messages.append(ChatMessage(role, content))
         self.updated = time.time()
+
+    def context_tokens(self) -> int:
+        total = 0
+        for m in self.messages:
+            total += estimate_tokens(m.content)
+        # Add ~100 tokens per message for role/format overhead
+        total += len(self.messages) * 100
+        return total
+
+    def context_limit(self) -> int:
+        return MODEL_CONTEXTS.get(self.model, DEFAULT_CONTEXT)
+
+    def context_pct(self) -> float:
+        limit = self.context_limit()
+        if limit <= 0:
+            return 0
+        return min(100.0, round((self.context_tokens() / limit) * 100, 1))
 
     def to_dict(self) -> dict:
         return {
@@ -42,6 +71,10 @@ class ChatSession:
             "updated": self.updated,
             "messages": [m.to_dict() for m in self.messages],
             "tools": self.tools,
+            "model": self.model,
+            "context_pct": self.context_pct(),
+            "context_tokens": self.context_tokens(),
+            "context_limit": self.context_limit(),
         }
 
     @classmethod
@@ -52,6 +85,7 @@ class ChatSession:
         s.updated = d.get("updated", s.created)
         s.messages = [ChatMessage.from_dict(m) for m in d.get("messages", [])]
         s.tools = d.get("tools", {})
+        s.model = d.get("model", "")
         return s
 
 

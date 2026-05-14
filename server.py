@@ -14,7 +14,7 @@ import uvicorn
 from website_manager import WebsiteManager
 from extractor import ContentExtractor
 from openblox_client import OpenBloxClient
-from chat_store import ChatStore, ChatSession
+from chat_store import ChatStore, ChatSession, ChatMessage
 from processor import DevProcessor
 from tools_manager import ToolsManager
 
@@ -233,6 +233,8 @@ async def chat(req: ChatRequest):
                 break
     if not session:
         session = store.get_active()
+    if session.model:
+        ai_client.model = session.model
 
     if req.edit_index is not None and 0 <= req.edit_index < len(session.messages):
         session.messages = session.messages[:req.edit_index]
@@ -254,8 +256,20 @@ async def chat(req: ChatRequest):
     st = session.tools
     tool_ctx = tools_mgr.get_enabled_context(st)
     extra = tool_ctx if tool_ctx else ""
+
+    # Auto-compact if context >= 70%
+    if st.get("context_compactor", True) and session.context_pct() >= 70:
+        compact_note = _compact_session(session, ai_client)
+        history = [{"role": m.role, "content": m.content} for m in session.messages]
+        if compact_note:
+            extra += f"\n\n[Auto: {compact_note}]"
+
     openai_tools = tools_mgr.get_openai_tools(st)
-    tool_handler = (lambda n, a: tools_mgr.handle_tool_call(n, a, st)) if openai_tools else None
+    def _handler(name, args):
+        if name == "compact_context":
+            return _compact_session(session, ai_client) or "Context compacted."
+        return tools_mgr.handle_tool_call(name, args, st) if openai_tools else None
+    tool_handler = _handler if (openai_tools or st.get("context_compactor", True)) else None
     advanced = st.get("advanced_thinking", False)
 
     if req.dev_mode and dev_chunks:
@@ -305,6 +319,8 @@ async def chat_stream(req: ChatRequest):
                 break
     if not session:
         session = store.get_active()
+    if session.model:
+        ai_client.model = session.model
 
     if req.edit_index is not None and 0 <= req.edit_index < len(session.messages):
         session.messages = session.messages[:req.edit_index]
@@ -321,8 +337,19 @@ async def chat_stream(req: ChatRequest):
     st = session.tools
     tool_ctx = tools_mgr.get_enabled_context(st)
     extra = tool_ctx if tool_ctx else ""
+
+    if st.get("context_compactor", True) and session.context_pct() >= 70:
+        compact_note = _compact_session(session, ai_client)
+        history = [{"role": m.role, "content": m.content} for m in session.messages]
+        if compact_note:
+            extra += f"\n\n[Auto: {compact_note}]"
+
     openai_tools = tools_mgr.get_openai_tools(st)
-    tool_handler = (lambda n, a: tools_mgr.handle_tool_call(n, a, st)) if openai_tools else None
+    def _s_handler(name, args):
+        if name == "compact_context":
+            return _compact_session(session, ai_client) or "Context compacted."
+        return tools_mgr.handle_tool_call(name, args, st) if openai_tools else None
+    tool_handler = _s_handler if (openai_tools or st.get("context_compactor", True)) else None
     advanced = st.get("advanced_thinking", False)
     integration_name = _get_integration_name(st)
 
@@ -360,6 +387,46 @@ async def list_websites():
                               "extractor_type": w.extractor_type} for w in wm.websites]}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.patch("/api/sessions/{session_id}/model")
+async def set_session_model(session_id: str, req: RenameRequest):
+    try:
+        s = _get_session(session_id)
+        if not s:
+            raise HTTPException(404, "Session not found")
+        s.model = req.title
+        store.save_session(s)
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+def _compact_session(session, ai_client) -> str:
+    """Summarize old messages to free context space. Returns a note about what happened."""
+    if len(session.messages) < 3:
+        return ""
+    # Keep the last user message + assistant response, summarize everything before
+    summary_targets = session.messages[:-2]
+    keep = session.messages[-2:]
+    if not summary_targets:
+        return ""
+
+    text_to_summarize = "\n".join(f"{m.role}: {m.content[:500]}" for m in summary_targets)
+    prompt = [
+        {"role": "user", "content": f"Summarize this Roblox Studio development conversation concisely. Preserve all decisions, code patterns discussed, and the current state. Keep it under 400 tokens.\n\nConversation:\n{text_to_summarize}"}
+    ]
+    summary = ai_client.chat(prompt, max_tokens=500)
+    if not summary or summary == "(no response)":
+        return ""
+
+    session.messages = [
+        ChatMessage("assistant", f"[Context compacted — previous conversation summarized]\n{summary}")
+    ] + keep
+    store.save_session(session)
+    return f"Context compacted. Previous conversation summarized. Current message count: {len(session.messages)}."
 
 
 def _get_session_tools(req_session_id: str = None) -> dict:

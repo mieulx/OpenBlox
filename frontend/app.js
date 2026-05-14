@@ -24,6 +24,16 @@ function abortFetch() {
   }
 }
 
+function updateContextBar(sess) {
+  const el = document.getElementById('ctx-bar');
+  if (!el || !sess) { return; }
+  const pct = sess.context_pct !== undefined ? sess.context_pct : 0;
+  const used = sess.context_tokens || 0;
+  const limit = sess.context_limit || 262144;
+  el.innerHTML = `<span class="ctx-fill" style="width:${Math.min(pct, 100)}%"></span><span class="ctx-text">${pct}% (${(used/1000).toFixed(0)}K / ${(limit/1000).toFixed(0)}K)</span>`;
+  el.className = 'ctx-bar' + (pct >= 80 ? ' ctx-high' : pct >= 60 ? ' ctx-warn' : '');
+}
+
 function updateSendBtn() {
   const btn = document.getElementById('send-btn');
   if (sending) {
@@ -104,6 +114,13 @@ const _ALL_MODELS = []; // populated by populateModels
 async function switchModel(id) {
   $('#s-model').value = id;
   await saveConf();
+  // Save model to current session
+  if (curId) {
+    await api('/api/sessions/' + curId + '/model', {
+      method: 'PATCH',
+      body: JSON.stringify({ title: id }),
+    }).catch(() => {});
+  }
   toast('Switched to ' + (MODEL_LABELS[id] || id), 'ok');
 }
 
@@ -152,6 +169,13 @@ async function loadSession(id) {
   try {
     const d = await api('/api/sessions/' + id);
     m.innerHTML = d.messages.map((msg, i) => renderMsg(msg.role, msg.content, i, msg.timestamp)).join('');
+    // Restore per-chat model
+    if (d.model) {
+      $('#model-picker').value = d.model;
+      $('#s-model').value = d.model;
+    }
+    // Update context display
+    updateContextBar(d);
     scrollDown();
   } catch { showWelcome(); }
 }
@@ -159,8 +183,14 @@ async function loadSession(id) {
 async function newChat() {
   const d = await api('/api/sessions', { method: 'POST' });
   curId = d.id;
+  // Save current model to new session
+  const model = $('#model-picker').value;
+  if (model) {
+    await api('/api/sessions/' + curId + '/model', {
+      method: 'PATCH', body: JSON.stringify({ title: model }),
+    }).catch(() => {});
+  }
   cancelEdit();
-  dismissChecklist();
   showWelcome();
   refreshSessions();
 }
@@ -347,6 +377,7 @@ async function send() {
             if (abortController.signal.aborted) return;
             const sess = event.session;
             msgs.innerHTML = sess.messages.map((msg, i) => renderMsg(msg.role, msg.content, i, msg.timestamp)).join('');
+            updateContextBar(sess);
             scrollDown();
             refreshSessions();
           } else if (event.type === 'error') {
