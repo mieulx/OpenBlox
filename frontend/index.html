@@ -67,6 +67,15 @@
 
     <div id="error-bar" class="hidden"></div>
 
+    <div id="checklist-panel" class="hidden">
+      <div class="cp-head">
+        <svg viewBox="0 0 24 24" width="13" height="13"><path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" fill="currentColor"/></svg>
+        <span>Plan</span>
+        <button class="cp-close" onclick="dismissChecklist()">&times;</button>
+      </div>
+      <div id="cp-body"></div>
+    </div>
+
     <div id="input-bar">
       <div class="input-hint">
         <span id="mcp-indicator" class="hidden">
