@@ -110,14 +110,33 @@ async function switchModel(id) {
 // ─── Sessions ───
 function renderSessions(list) {
   const el = document.getElementById('session-list');
-  el.innerHTML = list.map(s =>
-    `<div class="session-item ${s.id === curId ? 'active' : ''}"
-         onclick="switchSession('${s.id}')"
-         ondblclick="openRename('${s.id}')">
-      <span>${esc(s.title)}</span>
-      <button class="del" onclick="event.stopPropagation(); delSession('${s.id}')">&times;</button>
-    </div>`
-  ).join('');
+  const now = Date.now();
+  const day = 86400000;
+  const groups = [
+    { label: 'Recent', max: day, sessions: [] },
+    { label: 'Week ago', max: 7 * day, sessions: [] },
+    { label: 'Month ago', max: 30 * day, sessions: [] },
+    { label: 'Long time ago', max: Infinity, sessions: [] },
+  ];
+  list.forEach(s => {
+    const ts = (s.updated || s.created || 0) * 1000;
+    const age = now - ts;
+    for (const g of groups) {
+      if (age < g.max) { g.sessions.push(s); break; }
+    }
+  });
+  el.innerHTML = groups.map(g => {
+    if (!g.sessions.length) return '';
+    return `<div class="session-group-label">${g.label}</div>` +
+      g.sessions.map(s =>
+        `<div class="session-item ${s.id === curId ? 'active' : ''}"
+             onclick="switchSession('${s.id}')"
+             ondblclick="openRename('${s.id}')">
+          <span>${esc(s.title)}</span>
+          <button class="del" onclick="event.stopPropagation(); delSession('${s.id}')">&times;</button>
+        </div>`
+      ).join('');
+  }).join('');
 }
 
 async function switchSession(id) {

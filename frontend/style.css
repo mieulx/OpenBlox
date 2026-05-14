@@ -145,6 +145,7 @@ a{color:#58a6ff;text-decoration:none}
 }
 .session-item:hover .del{opacity:0.6}
 .session-item .del:hover{opacity:1;color:#ef4444}
+.session-group-label{font-size:10px;color:var(--text3);padding:8px 10px 2px;font-weight:500;letter-spacing:0.06em;text-transform:uppercase;opacity:0.5}
 
 /* Sidebar Footer */
 .sidebar-footer{

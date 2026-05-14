@@ -26,17 +26,20 @@ class ChatSession:
         self.id = uuid.uuid4().hex[:12]
         self.title = title
         self.created = time.time()
+        self.updated = time.time()
         self.messages: list[ChatMessage] = []
         self.tools: dict[str, bool] = {}
 
     def add_message(self, role: str, content: str):
         self.messages.append(ChatMessage(role, content))
+        self.updated = time.time()
 
     def to_dict(self) -> dict:
         return {
             "id": self.id,
             "title": self.title,
             "created": self.created,
+            "updated": self.updated,
             "messages": [m.to_dict() for m in self.messages],
             "tools": self.tools,
         }
@@ -46,6 +49,7 @@ class ChatSession:
         s = cls(d.get("title", "Chat"))
         s.id = d.get("id", uuid.uuid4().hex[:12])
         s.created = d.get("created", time.time())
+        s.updated = d.get("updated", s.created)
         s.messages = [ChatMessage.from_dict(m) for m in d.get("messages", [])]
         s.tools = d.get("tools", {})
         return s
@@ -65,7 +69,7 @@ class ChatStore:
         self.sessions = []
         if not os.path.isdir(DATA_DIR):
             return
-        for fname in sorted(os.listdir(DATA_DIR), reverse=True):
+        for fname in os.listdir(DATA_DIR):
             if fname.endswith(".json"):
                 path = os.path.join(DATA_DIR, fname)
                 try:
@@ -73,6 +77,7 @@ class ChatStore:
                         self.sessions.append(ChatSession.from_dict(json.load(f)))
                 except (json.JSONDecodeError, KeyError):
                     pass
+        self.sessions.sort(key=lambda s: s.updated, reverse=True)
         if not self.sessions:
             self.new_session()
 
@@ -81,6 +86,7 @@ class ChatStore:
         self.sessions.insert(0, session)
         self.active_id = session.id
         self._save(session)
+        self.sessions.sort(key=lambda s: s.updated, reverse=True)
         return session
 
     def get_active(self) -> Optional[ChatSession]:
@@ -94,6 +100,12 @@ class ChatStore:
 
     def switch_to(self, session_id: str):
         self.active_id = session_id
+        for s in self.sessions:
+            if s.id == session_id:
+                s.updated = time.time()
+                self._save(s)
+                self.sessions.sort(key=lambda s: s.updated, reverse=True)
+                break
 
     def delete_session(self, session_id: str):
         self.sessions = [s for s in self.sessions if s.id != session_id]
@@ -114,6 +126,7 @@ class ChatStore:
 
     def save_session(self, session: ChatSession):
         self._save(session)
+        self.sessions.sort(key=lambda s: s.updated, reverse=True)
 
     def _save(self, session: ChatSession):
         path = self._path(session.id)
