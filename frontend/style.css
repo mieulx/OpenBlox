@@ -339,42 +339,42 @@ a{color:#58a6ff;text-decoration:none}
 .tools-btn:hover{border-color:var(--cyan);color:var(--cyan);background:var(--cyan-dim)}
 .tools-btn.active{border-color:var(--cyan);color:var(--cyan);background:var(--cyan-dim)}
 
-/* Tools Panel (ChatGPT-style dropdown) */
+/* Tools Panel */
 #tools-panel{
   position:absolute;bottom:calc(100% + 4px);left:0;
-  min-width:240px;
-  background:#353535;border:none;
-  border-radius:16px;
-  box-shadow:0px 8px 16px 0px rgba(0,0,0,0.32), inset 0px 0px 1px 0px rgba(255,255,255,0.2), 0px 0px 1px 0px rgba(0,0,0,0.62);
-  display:none;z-index:50;padding:6px 0;
+  min-width:220px;
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:var(--radius);
+  box-shadow:0 8px 24px rgba(0,0,0,0.4);
+  display:none;z-index:50;padding:4px 0;
   user-select:none;
 }
 #tools-panel.open{display:block}
 .tools-panel-head{
   display:flex;align-items:center;justify-content:space-between;
-  padding:6px 14px;font-size:11px;color:#9ca3af;font-weight:500;
-  border-bottom:1px solid rgba(255,255,255,0.08);
+  padding:5px 12px;font-size:11px;color:var(--text3);font-weight:500;
+  border-bottom:1px solid var(--border);
 }
-.tools-panel-head button{color:#6b7280;font-size:14px;padding:0 3px}
-.tools-panel-head button:hover{color:#d1d5db}
-.tool-item{display:flex;align-items:center;gap:8px;padding:5px 14px;font-size:12.5px;color:#9ca3af;transition:background 0.1s;cursor:default}
-.tool-item:hover{background:rgba(255,255,255,0.04)}
+.tools-panel-head button{color:var(--text3);font-size:14px;padding:0 3px}
+.tools-panel-head button:hover{color:var(--text)}
+.tool-item{display:flex;align-items:center;gap:8px;padding:5px 12px;font-size:12.5px;color:var(--text2);transition:background 0.1s;cursor:default}
+.tool-item:hover{background:var(--bg3)}
 .tool-item .tool-info{flex:1;display:flex;align-items:center;gap:8px}
-.tool-item .tool-name{color:#e5e7eb}
-.tool-status{font-size:10px;color:#22d3ee}
+.tool-item .tool-name{color:var(--text)}
+.tool-status{font-size:10px;color:var(--cyan)}
 .tool-switch{
   width:28px;height:16px;border-radius:8px;
-  background:#4b5563;border:none;
+  background:var(--bg4);border:1px solid var(--border);
   cursor:pointer;position:relative;flex-shrink:0;
   transition:all 0.2s;
 }
-.tool-switch.on{background:rgba(34,211,238,0.2)}
+.tool-switch.on{background:var(--cyan-dim);border-color:var(--cyan)}
 .tool-switch::after{
   content:'';position:absolute;top:2px;left:2px;
   width:12px;height:12px;border-radius:50%;
-  background:#9ca3af;transition:all 0.2s;
+  background:var(--text3);transition:all 0.2s;
 }
-.tool-switch.on::after{left:14px;background:#22d3ee;box-shadow:0 0 4px rgba(34,211,238,0.4)}
+.tool-switch.on::after{left:14px;background:var(--cyan);box-shadow:0 0 4px var(--cyan-glow)}
 
 
 
