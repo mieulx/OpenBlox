@@ -156,7 +156,7 @@ class OpenBloxClient:
         return sp
 
     HARDCODED_MODELS = [
-        {"id": "nvidia/nemotron-3-super-120b-a12b:free", "name": "nvidia/nemotron-3-super-120b-a12b:free", "tier": "Apex"},
+        {"id": "nvidia/nemotron-3-super-120b-a12b:free", "name": "nvidia/nemotron-3-super-120b-a12b:free", "tier": "Apex 0.9"},
     ]
 
     def fetch_models(self) -> tuple[list[dict], list[dict]]:

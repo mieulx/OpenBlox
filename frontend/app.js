@@ -129,7 +129,7 @@ function populateModels(all) {
 }
 
 const MODEL_LABELS = {
-  'nvidia/nemotron-3-super-120b-a12b:free': 'Apex',
+  'nvidia/nemotron-3-super-120b-a12b:free': 'Apex 0.9',
 };
 const _ALL_MODELS = []; // populated by populateModels
 
