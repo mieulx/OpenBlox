@@ -587,7 +587,58 @@ function toggleChecklistItem(cb, cid) {
 
 
 
+function autoWrapLua(t) {
+  // Skip if already inside a fenced code block
+  if (/```[\s\S]*```/.test(t)) return t;
+  const lines = t.split('\n');
+  let codeStart = -1;
+  let codeEnd = -1;
+  let lastEnd = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    // Detect start of Lua code
+    if (codeStart === -1 && (
+      /^local\s/.test(line) ||
+      /^function\s/.test(line) ||
+      /^for\s/.test(line) ||
+      /^while\s/.test(line) ||
+      /^if\s/.test(line) ||
+      /^repeat\s/.test(line) ||
+      /^do\s/.test(line) ||
+      /^::/.test(line) ||
+      line.includes('Instance.new') ||
+      line.includes('= {}') ||
+      /\.new\(/.test(line)
+    )) {
+      codeStart = i;
+    }
+    // Track all ends
+    if (/^end\b/.test(line) || line === 'end') {
+      lastEnd = i;
+    }
+  }
+
+  // If we found code start and at least one end, wrap everything between
+  if (codeStart >= 0 && lastEnd >= codeStart) {
+    // Check if this is substantial code (at least 3 lines or contains function/keywords)
+    const codeLines = lines.slice(codeStart, lastEnd + 1);
+    const codeText = codeLines.join('\n');
+    if (codeLines.length >= 3 || /function|for |while |if .+ then/.test(codeText)) {
+      const before = lines.slice(0, codeStart).join('\n');
+      const after = lines.slice(lastEnd + 1).join('\n');
+      const id = 'c-' + (_uid++);
+      const highlighted = highlightLua(codeText);
+      const rawAttr = codeText.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '&#10;');
+      const wrapped = `<div class="pre-wrap"><pre id="${id}" data-code="${rawAttr}">${highlighted}</pre><button class="copy-btn" onclick="copyCode('${id}', this)">Copy</button></div>`;
+      return before + (before ? '\n\n' : '') + wrapped + (after ? '\n\n' + after : '');
+    }
+  }
+  return t;
+}
+
 function fmt(t) {
+  t = autoWrapLua(t);
   t = t.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
     const id = 'c-' + (_uid++);
     const highlighted = (lang === 'lua' || lang === 'luau' || lang === '')
