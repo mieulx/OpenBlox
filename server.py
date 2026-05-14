@@ -2,9 +2,9 @@ import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 
 import asyncio
-import json
+import json as json_mod
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -13,13 +13,13 @@ import uvicorn
 
 from website_manager import WebsiteManager
 from extractor import ContentExtractor
-from kilo_client import KiloClient
-from chat_store import ChatStore, ChatSession
+from openblox_client import OpenBloxClient
+from chat_store import ChatStore, ChatSession, ChatMessage
 from processor import DevProcessor
 from tools_manager import ToolsManager
 
 
-app = FastAPI(title="Kilo Roblox Studio Helper")
+app = FastAPI(title="OpenBlox Roblox Studio Helper")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:8520", "http://127.0.0.1:8520"], allow_methods=["*"], allow_headers=["*"])
 
 wm = WebsiteManager()
@@ -27,12 +27,12 @@ extractor = ContentExtractor(chunk_size=wm.search_config["chunk_size"])
 store = ChatStore()
 dev_proc = DevProcessor(wm, extractor)
 
-kilo_config = wm.kilo_config
-user_context = kilo_config.get("user_context", "")
-kilo = KiloClient(
-    api_key=kilo_config.get("api_key", ""),
-    model=kilo_config.get("model", "nvidia/nemotron-3-super-120b-a12b:free"),
-    temperature=kilo_config.get("temperature", 0.3),
+app_config = wm.openblox_config
+user_context = app_config.get("user_context", "")
+ai_client = OpenBloxClient(
+    api_key=app_config.get("api_key", ""),
+    model=app_config.get("model", "nvidia/nemotron-3-super-120b-a12b:free"),
+    temperature=app_config.get("temperature", 0.3),
     user_context=user_context,
 )
 
@@ -69,12 +69,16 @@ class ToolToggle(BaseModel):
     session_id: Optional[str] = None
 
 
-def make_kilo():
-    ctx = wm.kilo_config.get("user_context", "")
-    return KiloClient(
-        api_key=wm.kilo_config.get("api_key", ""),
-        model=wm.kilo_config.get("model", "nvidia/nemotron-3-super-120b-a12b:free"),
-        temperature=wm.kilo_config.get("temperature", 0.3),
+class CompactRequest(BaseModel):
+    session_id: Optional[str] = None
+
+
+def make_client():
+    ctx = wm.openblox_config.get("user_context", "")
+    return OpenBloxClient(
+        api_key=wm.openblox_config.get("api_key", ""),
+        model=wm.openblox_config.get("model", "nvidia/nemotron-3-super-120b-a12b:free"),
+        temperature=wm.openblox_config.get("temperature", 0.3),
         user_context=ctx,
     )
 
@@ -84,12 +88,21 @@ async def health():
     return {"ok": True}
 
 
+VERSION_FILE = os.path.join(os.path.dirname(__file__), "version")
+VERSION = open(VERSION_FILE, "r").read().strip() if os.path.exists(VERSION_FILE) else "0.0.0"
+
+
+@app.get("/api/version")
+async def get_version():
+    return {"version": VERSION}
+
+
 @app.get("/api/status")
 async def status():
     try:
         return {
-            "configured": make_kilo().is_configured(),
-            "model": make_kilo().model,
+            "configured": make_client().is_configured(),
+            "model": make_client().model,
             "sessions": len(store.sessions),
             "websites": len(wm.websites),
         }
@@ -101,10 +114,10 @@ async def status():
 async def get_config():
     try:
         return {
-            "api_key": bool(wm.kilo_config.get("api_key", "")),
-            "model": wm.kilo_config.get("model", "nvidia/nemotron-3-super-120b-a12b:free"),
-            "temperature": wm.kilo_config.get("temperature", 0.3),
-            "user_context": wm.kilo_config.get("user_context", ""),
+            "api_key": bool(wm.openblox_config.get("api_key", "")),
+            "model": wm.openblox_config.get("model", "nvidia/nemotron-3-super-120b-a12b:free"),
+            "temperature": wm.openblox_config.get("temperature", 0.3),
+            "user_context": wm.openblox_config.get("user_context", ""),
             "max_chunks": wm.search_config.get("max_chunks", 8),
             "chunk_size": wm.search_config.get("chunk_size", 1500),
         }
@@ -116,13 +129,13 @@ async def get_config():
 async def save_config(cfg: ConfigUpdate):
     try:
         if cfg.api_key is not None:
-            wm.kilo_config["api_key"] = cfg.api_key
+            wm.openblox_config["api_key"] = cfg.api_key
         if cfg.model is not None:
-            wm.kilo_config["model"] = cfg.model
+            wm.openblox_config["model"] = cfg.model
         if cfg.temperature is not None:
-            wm.kilo_config["temperature"] = cfg.temperature
+            wm.openblox_config["temperature"] = cfg.temperature
         if cfg.user_context is not None:
-            wm.kilo_config["user_context"] = cfg.user_context
+            wm.openblox_config["user_context"] = cfg.user_context
         if cfg.max_chunks is not None:
             wm.search_config["max_chunks"] = cfg.max_chunks
         if cfg.chunk_size is not None:
@@ -136,7 +149,7 @@ async def save_config(cfg: ConfigUpdate):
 @app.get("/api/models")
 async def list_models():
     try:
-        all_m, free_m = make_kilo().fetch_models()
+        all_m, free_m = make_client().fetch_models()
         return {"models": all_m, "free_models": free_m}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
@@ -193,7 +206,7 @@ async def export_session(session_id: str):
         s = _get_session(session_id)
         if not s:
             raise HTTPException(404, "Session not found")
-        lines = [f"Kilo Roblox Studio Helper — {s.title}", "=" * 50, ""]
+        lines = [f"OpenBlox — {s.title}", "=" * 50, ""]
         for m in s.messages:
             prefix = "You:" if m.role == "user" else "Assistant:"
             lines.append(f"{prefix}\n{m.content}\n")
@@ -221,8 +234,8 @@ async def get_session(session_id: str):
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
-    kilo_instance = make_kilo()
-    if not kilo_instance.is_configured():
+    ai_client = make_client()
+    if not ai_client.is_configured():
         return JSONResponse(status_code=400, content={"error": "API key not configured."})
 
     session = None
@@ -233,6 +246,8 @@ async def chat(req: ChatRequest):
                 break
     if not session:
         session = store.get_active()
+    if session.model:
+        ai_client.model = session.model
 
     if req.edit_index is not None and 0 <= req.edit_index < len(session.messages):
         session.messages = session.messages[:req.edit_index]
@@ -254,18 +269,33 @@ async def chat(req: ChatRequest):
     st = session.tools
     tool_ctx = tools_mgr.get_enabled_context(st)
     extra = tool_ctx if tool_ctx else ""
+
+    # Auto-compact if context >= 70%
+    if st.get("context_compactor", True) and session.context_pct() >= 70:
+        compact_note = _compact_session(session, ai_client)
+        history = [{"role": m.role, "content": m.content} for m in session.messages]
+        if compact_note:
+            extra += f"\n\n[Auto: {compact_note}]"
+
     openai_tools = tools_mgr.get_openai_tools(st)
-    tool_handler = (lambda n, a: tools_mgr.handle_tool_call(n, a, st)) if openai_tools else None
+    def _handler(name, args):
+        if name == "compact_context":
+            return _compact_session(session, ai_client) or "Context compacted."
+        return tools_mgr.handle_tool_call(name, args, st) if openai_tools else None
+    tool_handler = _handler if (openai_tools or st.get("context_compactor", True)) else None
+    advanced = st.get("advanced_thinking", False)
 
     if req.dev_mode and dev_chunks:
         doc_ctx = dev_proc.build_context(dev_chunks)
-        response = kilo_instance.chat_with_context(
+        response = ai_client.chat_with_context(
             history, doc_ctx, extra_context=extra,
-            tools=openai_tools or None, tool_handler=tool_handler)
+            tools=openai_tools or None, tool_handler=tool_handler,
+            advanced_thinking=advanced)
     else:
-        response = kilo_instance.chat(
+        response = ai_client.chat(
             history, extra_context=extra,
-            tools=openai_tools or None, tool_handler=tool_handler)
+            tools=openai_tools or None, tool_handler=tool_handler,
+            advanced_thinking=advanced)
 
     if response is None:
         response = "No response from API."
@@ -281,6 +311,116 @@ async def chat(req: ChatRequest):
     }
 
 
+def _get_integration_name(st: dict) -> str:
+    for tid, cfg in tools_mgr.tool_defs.items():
+        if st.get(tid, False) and cfg.get("command"):
+            return cfg.get("name", "Tool")
+    return ""
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(req: ChatRequest):
+    ai_client = make_client()
+    if not ai_client.is_configured():
+        return JSONResponse(status_code=400, content={"error": "API key not configured."})
+
+    session = None
+    if req.session_id:
+        for s in store.sessions:
+            if s.id == req.session_id:
+                session = s
+                break
+    if not session:
+        session = store.get_active()
+    if session.model:
+        ai_client.model = session.model
+
+    if req.edit_index is not None and 0 <= req.edit_index < len(session.messages):
+        session.messages = session.messages[:req.edit_index]
+        if req.message:
+            session.add_message("user", req.message)
+    elif req.message:
+        session.add_message("user", req.message)
+
+    if len(session.messages) == 1:
+        store.rename_session(session.id, req.message[:40] if req.message else "Chat")
+    store.save_session(session)
+
+    history = [{"role": m.role, "content": m.content} for m in session.messages]
+    st = session.tools
+    tool_ctx = tools_mgr.get_enabled_context(st)
+    extra = tool_ctx if tool_ctx else ""
+
+    if st.get("context_compactor", True) and session.context_pct() >= 70:
+        compact_note = _compact_session(session, ai_client)
+        history = [{"role": m.role, "content": m.content} for m in session.messages]
+        if compact_note:
+            extra += f"\n\n[Auto: {compact_note}]"
+
+    openai_tools = tools_mgr.get_openai_tools(st)
+    def _s_handler(name, args):
+        if name == "compact_context":
+            return _compact_session(session, ai_client) or "Context compacted."
+        return tools_mgr.handle_tool_call(name, args, st) if openai_tools else None
+    tool_handler = _s_handler if (openai_tools or st.get("context_compactor", True)) else None
+    advanced = st.get("advanced_thinking", False)
+    integration_name = _get_integration_name(st)
+
+    dev_chunks = []
+    if req.dev_mode:
+        dev_chunks = dev_proc.fetch_for_query(req.message or "")
+
+    def event_stream():
+        final_content = "(no response)"
+        if req.dev_mode and dev_chunks:
+            yield f"data: {json_mod.dumps({'type': 'dev', 'chunks': [{'heading': c.heading_path or c.source_url, 'text': c.text[:500]} for c in dev_chunks[:5]]})}\n\n"
+        if not ai_client.is_configured():
+            yield f"data: {json_mod.dumps({'type': 'error', 'content': 'API key not configured.'})}\n\n"
+            return
+        for event in ai_client.chat_stream(
+            history, extra_context=extra,
+            tools=openai_tools or None, tool_handler=tool_handler,
+            advanced_thinking=advanced, integration_name=integration_name,
+        ):
+            if event["type"] == "done":
+                final_content = event["content"]
+            yield f"data: {json_mod.dumps(event)}\n\n"
+        
+        session.add_message("assistant", final_content)
+        store.save_session(session)
+        yield f"data: {json_mod.dumps({'type': 'session', 'session': session.to_dict()})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.post("/api/compact")
+async def compact_chat(req: CompactRequest):
+    try:
+        ai_client = make_client()
+        session = None
+        if req.session_id:
+            session = _get_session(req.session_id)
+        if not session:
+            session = store.get_active()
+        if session.model:
+            ai_client.model = session.model
+
+        note = _compact_session(session, ai_client)
+        if note:
+            # Add system message about compaction
+            session.add_message("assistant", f"_Context compacted._")
+            store.save_session(session)
+            return {
+                "ok": True,
+                "note": note,
+                "session": session.to_dict(),
+                "context_pct": session.context_pct(),
+            }
+        return {"ok": False, "note": "Not enough messages to compact."}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
 @app.get("/api/websites")
 async def list_websites():
     try:
@@ -288,6 +428,46 @@ async def list_websites():
                               "extractor_type": w.extractor_type} for w in wm.websites]}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.patch("/api/sessions/{session_id}/model")
+async def set_session_model(session_id: str, req: RenameRequest):
+    try:
+        s = _get_session(session_id)
+        if not s:
+            raise HTTPException(404, "Session not found")
+        s.model = req.title
+        store.save_session(s)
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+def _compact_session(session, ai_client) -> str:
+    """Summarize old messages to free context space. Returns a note about what happened."""
+    if len(session.messages) < 3:
+        return ""
+    # Keep the last user message + assistant response, summarize everything before
+    summary_targets = session.messages[:-2]
+    keep = session.messages[-2:]
+    if not summary_targets:
+        return ""
+
+    text_to_summarize = "\n".join(f"{m.role}: {m.content[:500]}" for m in summary_targets)
+    prompt = [
+        {"role": "user", "content": f"Summarize this Roblox Studio development conversation concisely. Preserve all decisions, code patterns discussed, and the current state. Keep it under 400 tokens.\n\nConversation:\n{text_to_summarize}"}
+    ]
+    summary = ai_client.chat(prompt, max_tokens=500)
+    if not summary or summary == "(no response)":
+        return ""
+
+    session.messages = [
+        ChatMessage("assistant", f"[Context compacted — previous conversation summarized]\n{summary}")
+    ] + keep
+    store.save_session(session)
+    return f"Context compacted. Previous conversation summarized. Current message count: {len(session.messages)}."
 
 
 def _get_session_tools(req_session_id: str = None) -> dict:

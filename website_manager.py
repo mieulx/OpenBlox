@@ -4,7 +4,15 @@ from dataclasses import dataclass, field, asdict
 from typing import List, Optional
 
 
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
+def _appdata_root() -> str:
+    base = os.getenv("APPDATA") or os.getenv("LOCALAPPDATA") or os.path.dirname(__file__)
+    path = os.path.join(base, "OpenBlox")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+CONFIG_PATH = os.path.join(_appdata_root(), "config.json")
+LEGACY_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 
 
 @dataclass
@@ -20,7 +28,7 @@ class WebsiteManager:
     def __init__(self, config_path: str = CONFIG_PATH):
         self.config_path = config_path
         self.websites: List[WebsiteEntry] = []
-        self.kilo_config = {
+        self.openblox_config = {
             "api_key": "",
             "endpoint": "https://api.kilo.ai/api/gateway/chat/completions",
             "model": "nvidia/nemotron-3-super-120b-a12b:free",
@@ -31,6 +39,7 @@ class WebsiteManager:
             "max_chunks": 8,
             "chunk_size": 1500,
         }
+        self._migrate_legacy_config()
         self.load()
 
     def load(self):
@@ -42,11 +51,25 @@ class WebsiteManager:
             with open(self.config_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             self.websites = [WebsiteEntry(**w) for w in data.get("websites", [])]
-            self.kilo_config.update(data.get("kilo", {}))
+            self.openblox_config.update(data.get("openblox", {}))
             self.search_config.update(data.get("search", {}))
         except (json.JSONDecodeError, KeyError):
             self._set_defaults()
             self.save()
+
+    def _migrate_legacy_config(self):
+        if os.path.abspath(self.config_path) == os.path.abspath(LEGACY_CONFIG_PATH):
+            return
+        if os.path.exists(self.config_path) or not os.path.exists(LEGACY_CONFIG_PATH):
+            return
+        try:
+            with open(LEGACY_CONFIG_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+        except (OSError, json.JSONDecodeError):
+            pass
 
     def _set_defaults(self):
         self.websites = [
@@ -76,7 +99,7 @@ class WebsiteManager:
     def save(self):
         data = {
             "websites": [asdict(w) for w in self.websites],
-            "kilo": self.kilo_config,
+            "openblox": self.openblox_config,
             "search": self.search_config,
         }
         with open(self.config_path, "w", encoding="utf-8") as f:
@@ -108,16 +131,16 @@ class WebsiteManager:
     def get_enabled_websites(self) -> List[WebsiteEntry]:
         return [w for w in self.websites if w.enabled]
 
-    def update_kilo_config(self, api_key: str = "", endpoint: str = "",
+    def update_openblox_config(self, api_key: str = "", endpoint: str = "",
                            model: str = "nvidia/nemotron-3-super-120b-a12b:free",
                            temperature: float = 0.3,
                            user_context: str = ""):
-        self.kilo_config["api_key"] = api_key
-        self.kilo_config["endpoint"] = endpoint
-        self.kilo_config["model"] = model
-        self.kilo_config["temperature"] = temperature
+        self.openblox_config["api_key"] = api_key
+        self.openblox_config["endpoint"] = endpoint
+        self.openblox_config["model"] = model
+        self.openblox_config["temperature"] = temperature
         if user_context is not None:
-            self.kilo_config["user_context"] = user_context
+            self.openblox_config["user_context"] = user_context
         self.save()
 
     def update_search_config(self, max_chunks: int = 8, chunk_size: int = 1500):

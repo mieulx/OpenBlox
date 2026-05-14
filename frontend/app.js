@@ -1,5 +1,6 @@
 let curId = null, sending = false, abortController = null;
 let editingIndex = null;
+let _contextPct = 0;
 const TIMEOUT_MS = 120000;
 
 const $ = s => document.querySelector(s);
@@ -24,12 +25,56 @@ function abortFetch() {
   }
 }
 
+function collapseLongMessages() {
+  document.querySelectorAll('.msg.bot').forEach(el => {
+    if (el.scrollHeight > 500 && !el.dataset.collapsed) {
+      el.dataset.collapsed = '1';
+      el.style.maxHeight = '400px';
+      el.style.overflow = 'hidden';
+      el.style.position = 'relative';
+      const btn = document.createElement('button');
+      btn.textContent = 'Show all';
+      btn.className = 'expand-btn';
+      btn.onclick = function() {
+        el.style.maxHeight = '';
+        el.style.overflow = '';
+        btn.remove();
+      };
+      el.parentElement.appendChild(btn);
+    }
+  });
+}
+
+function updateContextBar(sess) {
+  const el = document.getElementById('ctx-bar');
+  if (!el || !sess) { return; }
+  _contextPct = sess.context_pct !== undefined ? sess.context_pct : 0;
+  const used = sess.context_tokens || 0;
+  const limit = sess.context_limit || 262144;
+  el.innerHTML = `<span class="ctx-fill" style="width:${Math.min(_contextPct, 100)}%"></span><span class="ctx-text">${_contextPct}% (${(used/1000).toFixed(0)}K / ${(limit/1000).toFixed(0)}K)</span>`;
+  el.className = 'ctx-bar' + (_contextPct >= 80 ? ' ctx-high' : _contextPct >= 60 ? ' ctx-warn' : '');
+}
+
+function updateSendBtn() {
+  const btn = document.getElementById('send-btn');
+  if (sending) {
+    btn.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M6 6h12v12H6z" fill="currentColor"/></svg>';
+    btn.onclick = stopThinking;
+    btn.classList.add('stop');
+  } else {
+    btn.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" fill="currentColor"/></svg>';
+    btn.onclick = send;
+    btn.classList.remove('stop');
+  }
+}
+
 function stopThinking() {
   abortFetch();
   clearTimeout(_sendTimer);
-  document.querySelectorAll('.think').forEach(el => el.remove());
+  removeThinkFold();
   sending = false;
   document.getElementById('send-btn').disabled = false;
+  updateSendBtn();
   document.getElementById('chat-input').focus();
   showError('Stopped by user', 'warn');
 }
@@ -43,7 +88,16 @@ async function init() {
     ]);
     curId = sd.active_id;
     renderSessions(sd.sessions);
-    loadSession(curId);
+    if (curId) {
+      const sess = await api('/api/sessions/' + curId).catch(() => null);
+      if (sess && sess.messages && sess.messages.length) {
+        document.getElementById('messages').innerHTML = sess.messages.map((msg, i) => renderMsg(msg.role, msg.content, i, msg.timestamp)).join('');
+      } else {
+        showWelcome();
+      }
+    } else {
+      showWelcome();
+    }
     populateModels(md.models || [], md.free_models || []);
     const cfg = await api('/api/config').catch(() => ({}));
     if (cfg.model) {
@@ -51,6 +105,9 @@ async function init() {
       $('#s-model').value = cfg.model;
     }
     if (cfg.user_context) $('#s-context').value = cfg.user_context;
+    const ver = await api('/api/version').catch(() => ({ version: '' }));
+    const vEl = document.getElementById('version-display');
+    if (vEl && ver.version) vEl.textContent = 'v' + ver.version;
   } catch (e) { toast('Failed to load: ' + e.message, 'err'); }
 }
 document.addEventListener('DOMContentLoaded', init);
@@ -58,10 +115,13 @@ document.addEventListener('DOMContentLoaded', init);
 function populateModels(all) {
   const picker = $('#model-picker');
   const sModel = $('#s-model');
+  const dev = document.getElementById('dev-mode').checked;
+  _ALL_MODELS.length = 0;
+  _ALL_MODELS.push(...all);
   picker.innerHTML = '';
   sModel.innerHTML = '';
   for (const m of all) {
-    const label = m.tier ? m.tier + ' \u2014 ' + m.id : m.id;
+    const label = dev && m.id ? m.tier + ' \u2014 ' + m.id : m.tier;
     const o1 = document.createElement('option');
     o1.value = m.id; o1.textContent = label;
     picker.appendChild(o1);
@@ -70,28 +130,53 @@ function populateModels(all) {
 }
 
 const MODEL_LABELS = {
-  'kilo-auto/free': 'Auto',
-  'nvidia/nemotron-3-super-120b-a12b:free': 'Apex',
-  'arcee-ai/trinity-large-thinking:free': 'Rover',
+  'nvidia/nemotron-3-super-120b-a12b:free': 'Apex 0.9',
 };
+const _ALL_MODELS = []; // populated by populateModels
 
 async function switchModel(id) {
   $('#s-model').value = id;
   await saveConf();
+  // Save model to current session
+  if (curId) {
+    await api('/api/sessions/' + curId + '/model', {
+      method: 'PATCH',
+      body: JSON.stringify({ title: id }),
+    }).catch(() => {});
+  }
   toast('Switched to ' + (MODEL_LABELS[id] || id), 'ok');
 }
 
 // ─── Sessions ───
 function renderSessions(list) {
   const el = document.getElementById('session-list');
-  el.innerHTML = list.map(s =>
-    `<div class="session-item ${s.id === curId ? 'active' : ''}"
-         onclick="switchSession('${s.id}')"
-         ondblclick="openRename('${s.id}')">
-      <span>${esc(s.title)}</span>
-      <button class="del" onclick="event.stopPropagation(); delSession('${s.id}')">&times;</button>
-    </div>`
-  ).join('');
+  const now = Date.now();
+  const day = 86400000;
+  const groups = [
+    { label: 'Recent', max: day, sessions: [] },
+    { label: 'Week ago', max: 7 * day, sessions: [] },
+    { label: 'Month ago', max: 30 * day, sessions: [] },
+    { label: 'Long time ago', max: Infinity, sessions: [] },
+  ];
+  list.forEach(s => {
+    const ts = (s.updated || s.created || 0) * 1000;
+    const age = now - ts;
+    for (const g of groups) {
+      if (age < g.max) { g.sessions.push(s); break; }
+    }
+  });
+  el.innerHTML = groups.map(g => {
+    if (!g.sessions.length) return '';
+    return `<div class="session-group-label">${g.label}</div>` +
+      g.sessions.map(s =>
+        `<div class="session-item ${s.id === curId ? 'active' : ''}"
+             onclick="switchSession('${s.id}')"
+             ondblclick="openRename('${s.id}')">
+          <span title="${esc(s.title)}">${esc(s.title.length > 24 ? s.title.slice(0, 24) + '..' : s.title)}</span>
+          <button class="del" onclick="event.stopPropagation(); delSession('${s.id}')">&times;</button>
+        </div>`
+      ).join('');
+  }).join('');
 }
 
 async function switchSession(id) {
@@ -103,19 +188,34 @@ async function switchSession(id) {
 
 async function loadSession(id) {
   const m = document.getElementById('messages');
-  if (!id) { m.innerHTML = welcome(); return; }
+  if (!id) { showWelcome(); return; }
   try {
     const d = await api('/api/sessions/' + id);
-    m.innerHTML = d.messages.map((msg, i) => renderMsg(msg.role, msg.content, i)).join('');
+    m.innerHTML = d.messages.map((msg, i) => renderMsg(msg.role, msg.content, i, msg.timestamp)).join('');
+    collapseLongMessages();
+    // Restore per-chat model
+    if (d.model) {
+      $('#model-picker').value = d.model;
+      $('#s-model').value = d.model;
+    }
+    // Update context display
+    updateContextBar(d);
     scrollDown();
-  } catch { m.innerHTML = welcome(); }
+  } catch { showWelcome(); }
 }
 
 async function newChat() {
   const d = await api('/api/sessions', { method: 'POST' });
   curId = d.id;
+  // Save current model to new session
+  const model = $('#model-picker').value;
+  if (model) {
+    await api('/api/sessions/' + curId + '/model', {
+      method: 'PATCH', body: JSON.stringify({ title: model }),
+    }).catch(() => {});
+  }
   cancelEdit();
-  document.getElementById('messages').innerHTML = welcome();
+  showWelcome();
   refreshSessions();
 }
 
@@ -178,6 +278,8 @@ function editMessage(index) {
   const group = groups[index];
   const textEl = group.querySelector('.msg.user');
   if (!textEl) return;
+  // Prevent editing messages that start with /
+  if (textEl.textContent.trim().startsWith('/')) return;
 
   editingIndex = index;
   document.getElementById('chat-input').value = textEl.textContent;
@@ -185,6 +287,35 @@ function editMessage(index) {
   document.getElementById('input-bar').classList.add('editing');
   document.getElementById('chat-input').focus();
   scrollDown();
+}
+
+let _thinkingTid = null;
+
+function setThinkStatus(text) {
+  if (!_thinkingTid) return;
+  const el = document.getElementById('tf-status-' + _thinkingTid);
+  if (el) el.textContent = text;
+}
+
+function addThinkStep(type, text) {
+  if (!_thinkingTid) return;
+  const steps = document.getElementById('tf-steps-' + _thinkingTid);
+  if (!steps) return;
+  const cls = type === 'tool' ? 'accent' : type === 'output' ? 'dim' : '';
+  const label = type === 'tool' ? '▸ ' : '';
+  steps.innerHTML += `<div class="tf-step"><span class="${cls}">${label}${esc(text)}</span></div>`;
+}
+
+function removeThinkFold() {
+  if (!_thinkingTid) return;
+  const el = document.getElementById(_thinkingTid);
+  if (el) el.remove();
+  _thinkingTid = null;
+}
+
+function toggleThinkFold(tid) {
+  const el = document.getElementById(tid);
+  if (el) el.classList.toggle('open');
 }
 
 function cancelEdit() {
@@ -200,15 +331,43 @@ async function send() {
   const text = inp.value.trim();
   if (!text) return;
 
-  // Interrupt previous request if still sending
+  // Auto-create chat if no session
+  if (!curId) {
+    const newSess = await api('/api/sessions', { method: 'POST' });
+    curId = newSess.id;
+    await refreshSessions();
+  }
+
+  // Block sending while AI is generating — use Stop button instead
   if (sending) {
-    abortFetch();
-    clearTimeout(_sendTimer);
-    // Remove old thinking indicator
-    const oldThink = document.querySelector('.think');
-    if (oldThink) oldThink.remove();
-    sending = false;
-    document.getElementById('send-btn').disabled = false;
+    return;
+  }
+
+  // Handle /commands
+  if (text.startsWith('/')) {
+    if (text === '/compact') {
+      sending = false;
+      const d = await api('/api/compact', { method: 'POST', body: JSON.stringify({ session_id: curId }) });
+      if (d.ok) {
+        updateContextBar(d.session || d);
+        toast('Context compacted!', 'ok');
+        await loadSession(curId);
+      } else {
+        toast(d.note || 'Failed to compact', 'err');
+      }
+      updateSendBtn();
+      return;
+    }
+    toast('Unknown command: ' + text, 'err');
+    updateSendBtn();
+    return;
+  }
+
+  // Block sending if context is over 70%
+  if (_contextPct >= 70) {
+    showError('Context is ' + _contextPct + '% full. Type /compact to free up space before continuing.', 'warn');
+    updateSendBtn();
+    return;
   }
 
   inp.value = ''; inp.style.height = 'auto';
@@ -216,6 +375,7 @@ async function send() {
   abortController = new AbortController();
   clearError();
   document.getElementById('input-bar').classList.remove('editing');
+  updateSendBtn();
 
   const msgs = document.getElementById('messages');
   const w = msgs.querySelector('.welcome');
@@ -228,61 +388,109 @@ async function send() {
   }
   editingIndex = null;
 
-  const tid = 't-' + Date.now();
+  _thinkingTid = 'think-' + Date.now();
   msgs.insertAdjacentHTML('beforeend',
-    `<div id="${tid}" class="think"><span>Thinking</span><span class="d"><span></span><span></span><span></span></span><button class="stop-btn" onclick="stopThinking()">Stop</button></div>`
+    `<div id="${_thinkingTid}" class="think-fold">
+      <div class="tf-head" onclick="toggleThinkFold('${_thinkingTid}')">
+        <span class="tf-arrow">▶</span>
+        <span class="tf-status" id="tf-status-${_thinkingTid}">Thinking</span>
+        <span class="tf-dots"><span></span><span></span><span></span></span>
+      </div>
+      <div class="tf-body" id="tf-body-${_thinkingTid}">
+        <div class="tf-steps" id="tf-steps-${_thinkingTid}"></div>
+      </div>
+    </div>`
   );
   scrollDown();
-  document.getElementById('send-btn').disabled = true;
+  document.getElementById('send-btn').disabled = false;
+  updateSendBtn();
 
   const dev = document.getElementById('dev-mode').checked;
   let timedOut = false;
   _sendTimer = setTimeout(() => {
     timedOut = true;
-    document.getElementById(tid)?.remove();
-    showError('Request timed out after ' + (TIMEOUT_MS/1000) + 's.', 'err');
-    msgs.insertAdjacentHTML('beforeend', renderMsg('assistant', '_Request timed out._', -1));
-    scrollDown();
-    sending = false;
-    document.getElementById('send-btn').disabled = false;
+    if (_thinkingTid) {
+      const el = document.getElementById('tf-status-' + _thinkingTid);
+      if (el) el.textContent = 'Still thinking...';
+    }
+    showError('Taking longer than expected...', 'warn');
+    setTimeout(() => {
+      if (_thinkingTid) {
+        const el = document.getElementById('tf-status-' + _thinkingTid);
+        if (el) el.textContent = 'Still thinking, really';
+      }
+    }, 60000);
   }, TIMEOUT_MS);
+
+  let accumulatedContent = '';
 
   try {
     const body = { message: text, session_id: curId, dev_mode: dev };
     if (editIdx !== null) body.edit_index = editIdx;
 
-    const data = await api('/api/chat', {
+    const resp = await fetch('/api/chat/stream', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: abortController.signal,
     });
 
-    clearTimeout(_sendTimer);
-    if (timedOut) return;
-    if (abortController.signal.aborted) return;
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
 
-    curId = data.session.id;
-    document.getElementById(tid)?.remove();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() || '';
 
-    if (dev && data.dev_chunks.length) {
-      showDev(data.dev_chunks);
-    } else {
-      hideDev();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6));
+          if (event.type === 'thinking') {
+            accumulatedContent = event.content;
+            addThinkStep('text', event.content.slice(0, 80));
+          } else if (event.type === 'dev') {
+            if (event.chunks && event.chunks.length) {
+              showDev(event.chunks);
+            } else {
+              hideDev();
+            }
+          } else if (event.type === 'tool') {
+            addThinkStep('tool', event.tool + ' through ' + event.integration);
+          } else if (event.type === 'tool_output') {
+            const out = event.output;
+            if (out) addThinkStep('output', out.slice(0, 120));
+          } else if (event.type === 'done') {
+            removeThinkFold();
+            accumulatedContent = event.content || '(no response)';
+          } else if (event.type === 'session') {
+            clearTimeout(_sendTimer);
+            if (abortController.signal.aborted) return;
+            const sess = event.session;
+            msgs.innerHTML = sess.messages.map((msg, i) => renderMsg(msg.role, msg.content, i, msg.timestamp)).join('');
+            collapseLongMessages();
+            updateContextBar(sess);
+            scrollDown();
+            refreshSessions();
+          } else if (event.type === 'error') {
+            clearTimeout(_sendTimer);
+            removeThinkFold();
+            showError(event.content, 'err');
+            msgs.insertAdjacentHTML('beforeend', renderMsg('assistant', '_Error: ' + esc(event.content) + '_', -1));
+            scrollDown();
+          }
+        } catch (e) { /* skip malformed events */ }
+      }
     }
-
-    const sess = await api('/api/sessions/' + curId);
-    msgs.innerHTML = sess.messages.map((msg, i) => renderMsg(msg.role, msg.content, i)).join('');
-    scrollDown();
-    refreshSessions();
   } catch (e) {
     clearTimeout(_sendTimer);
-    if (timedOut || abortController?.signal.aborted) return;
-    document.getElementById(tid)?.remove();
-    const errMsg = e.message.includes('Failed to fetch')
-      ? 'Cannot reach server.'
-      : e.message.includes('timed out')
-      ? 'Request timed out.'
-      : e.message;
+    if (abortController?.signal.aborted) { updateSendBtn(); return; }
+    removeThinkFold();
+    const errMsg = e.message;
     showError(errMsg, 'err');
     msgs.insertAdjacentHTML('beforeend', renderMsg('assistant', '_Error: ' + esc(errMsg) + '_', -1));
     scrollDown();
@@ -290,19 +498,28 @@ async function send() {
 
   sending = false;
   document.getElementById('send-btn').disabled = false;
+  updateSendBtn();
   inp.focus();
 }
 
-function renderMsg(role, text, index) {
+function fmtTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts * 1000);
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function renderMsg(role, text, index, ts) {
   const isUser = role === 'user';
   const label = isUser ? 'You' : 'Assistant';
   const lc = isUser ? 'user-label' : '';
   const body = isUser ? esc(text) : fmt(text);
-  const click = isUser ? ` onclick="editMessage(${index})" title="Click to edit"` : '';
+  const time = fmtTime(ts);
+  const pen = isUser ? `<button class="pen-btn" onclick="editMessage(${index})" title="Edit message"><svg viewBox="0 0 24 24" width="13" height="13"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/></svg></button>` : '';
   return `
     <div class="msg-group">
-      <div class="msg-label ${lc}">${label}</div>
-      <div class="msg ${isUser ? 'user' : 'bot'}"${click}>${body}</div>
+      <div class="msg-label ${lc}">${label}${time ? ` <span class="msg-time">${time}</span>` : ''}</div>
+      <div class="msg ${isUser ? 'user' : 'bot'}">${body}</div>
+      ${pen}
     </div>
   `;
 }
@@ -404,10 +621,12 @@ function renderChecklist(text) {
   const result = [];
   let i = 0;
   while (i < lines.length) {
-    if (/^\s*(?:\d+[\.\)]|[-*])\s+/.test(lines[i]) || /^\s*[-*]\s*\[[ x]\]/.test(lines[i])) {
+    const stepRe = /^\s*(?:\[DONE\]\s*)?(?:\d+[\.\)]|[-*])\s+/;
+    const taskRe = /^\s*[-*]\s*\[[ x]\]/;
+    if (stepRe.test(lines[i]) || taskRe.test(lines[i])) {
       const items = [];
       const startIdx = i;
-      while (i < lines.length && (/^\s*(?:\d+[\.\)]|[-*])\s+/.test(lines[i]) || /^\s*[-*]\s*\[[ x]\]/.test(lines[i]))) {
+      while (i < lines.length && (stepRe.test(lines[i]) || taskRe.test(lines[i]))) {
         const raw = lines[i];
         let checked = false;
         let stepText = raw;
@@ -460,7 +679,60 @@ function toggleChecklistItem(cb, cid) {
   if (span) span.textContent = done + '/' + total;
 }
 
+
+
+function autoWrapLua(t) {
+  // Skip if already inside a fenced code block
+  if (/```[\s\S]*```/.test(t)) return t;
+  const lines = t.split('\n');
+  let codeStart = -1;
+  let codeEnd = -1;
+  let lastEnd = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    // Detect start of Lua code
+    if (codeStart === -1 && (
+      /^local\s/.test(line) ||
+      /^function\s/.test(line) ||
+      /^for\s/.test(line) ||
+      /^while\s/.test(line) ||
+      /^if\s/.test(line) ||
+      /^repeat\s/.test(line) ||
+      /^do\s/.test(line) ||
+      /^::/.test(line) ||
+      line.includes('Instance.new') ||
+      line.includes('= {}') ||
+      /\.new\(/.test(line)
+    )) {
+      codeStart = i;
+    }
+    // Track all ends
+    if (/^end\b/.test(line) || line === 'end') {
+      lastEnd = i;
+    }
+  }
+
+  // If we found code start and at least one end, wrap everything between
+  if (codeStart >= 0 && lastEnd >= codeStart) {
+    // Check if this is substantial code (at least 3 lines or contains function/keywords)
+    const codeLines = lines.slice(codeStart, lastEnd + 1);
+    const codeText = codeLines.join('\n');
+    if (codeLines.length >= 3 || /function|for |while |if .+ then/.test(codeText)) {
+      const before = lines.slice(0, codeStart).join('\n');
+      const after = lines.slice(lastEnd + 1).join('\n');
+      const id = 'c-' + (_uid++);
+      const highlighted = highlightLua(codeText);
+      const rawAttr = codeText.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '&#10;');
+      const wrapped = `<div class="pre-wrap"><pre id="${id}" data-code="${rawAttr}">${highlighted}</pre><button class="copy-btn" onclick="copyCode('${id}', this)">Copy</button></div>`;
+      return before + (before ? '\n\n' : '') + wrapped + (after ? '\n\n' + after : '');
+    }
+  }
+  return t;
+}
+
 function fmt(t) {
+  t = autoWrapLua(t);
   t = t.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
     const id = 'c-' + (_uid++);
     const highlighted = (lang === 'lua' || lang === 'luau' || lang === '')
@@ -473,6 +745,10 @@ function fmt(t) {
   t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   t = t.replace(/(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)/g, '<em>$1</em>');
   t = t.replace(/(?<!\w)_(?!\s)(.+?)(?<!\s)_(?!\w)/g, '<em>$1</em>');
+  t = t.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  t = t.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  t = t.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  t = t.replace(/^---+\s*$/gm, '<hr>');
   t = t.replace(/\n/g, '<br>');
   return t;
 }
@@ -522,17 +798,35 @@ function showDev(chunks) {
   p.classList.remove('hidden');
 }
 function hideDev() { document.getElementById('dev-panel').classList.add('hidden'); }
-function toggleDev() { if (!document.getElementById('dev-mode').checked) hideDev(); }
+function toggleDev() {
+  if (!document.getElementById('dev-mode').checked) hideDev();
+  const dev = document.getElementById('dev-mode').checked;
+  [ $('#model-picker'), $('#s-model') ].forEach(sel => {
+    for (let i = 0; i < sel.options.length; i++) {
+      const m = _ALL_MODELS.find(x => x.id === sel.options[i].value);
+      if (m) sel.options[i].textContent = dev ? m.tier + ' \u2014 ' + m.id : m.tier;
+    }
+  });
+}
 
 // ─── Welcome ───
+function showWelcome() {
+  const msgs = document.getElementById('messages');
+  msgs.innerHTML = `
+    <div class="welcome">
+      <img src="/assets/gradient.png" class="bolt-big" alt="OpenBlox">
+      <h1>OpenBlox</h1>
+      <p>Roblox Studio AI assistant.</p>
+    </div>
+  `;
+}
+
 function welcome() {
   return `
     <div class="welcome">
-      <svg class="bolt-big" viewBox="0 0 24 24">
-        <path d="M13 2L4 14h5v8l9-12h-5z" fill="currentColor"/>
-      </svg>
-      <h1>Kilo Roblox Studio Helper</h1>
-      <p>Ask anything about Roblox Studio. Toggle Dev to see raw documentation.</p>
+      <img src="/assets/gradient.png" class="bolt-big" alt="OpenBlox">
+      <h1>OpenBlox</h1>
+      <p>Roblox Studio AI assistant.</p>
     </div>
   `;
 }
@@ -643,22 +937,13 @@ function toast(msg, type) {
 async function toggleToolsPanel() {
   const panel = document.getElementById('tools-panel');
   const btn = document.getElementById('tools-btn');
-  if (panel.classList.contains('hidden')) {
-    panel.classList.remove('hidden');
+  if (!panel.classList.contains('open')) {
+    panel.classList.add('open');
     btn.classList.add('active');
     await refreshTools();
   } else {
-    panel.classList.add('hidden');
+    panel.classList.remove('open');
     btn.classList.remove('active');
-  }
-}
-
-let _mcpActive = false;
-
-function updateMCPIndicator() {
-  const el = document.getElementById('mcp-indicator');
-  if (el) {
-    el.classList.toggle('hidden', !_mcpActive);
   }
 }
 
@@ -666,9 +951,7 @@ async function refreshTools() {
   try {
     const d = await api('/api/tools?session_id=' + (curId || ''));
     const el = document.getElementById('tools-list');
-    _mcpActive = false;
     el.innerHTML = d.tools.map(t => {
-      if (t.enabled && t.mcp_count) _mcpActive = true;
       return `
         <div class="tool-item">
           <div class="tool-info">
@@ -678,7 +961,6 @@ async function refreshTools() {
           <div class="tool-switch ${t.enabled ? 'on' : ''}" onclick="toggleTool('${t.id}')"></div>
         </div>`;
     }).join('');
-    updateMCPIndicator();
   } catch {}
 }
 

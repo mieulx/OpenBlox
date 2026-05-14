@@ -3,20 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kilo Roblox Studio Helper</title>
+<title>OpenBlox</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Fraunces:opsz,wght@9..144,200;9..144,300;9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/style.css?v=2">
 </head>
 <body>
 <div id="app" class="chat-layout">
   <aside id="sidebar">
     <div class="sidebar-brand">
-      <svg class="bolt" viewBox="0 0 24 24" width="20" height="20">
-        <path d="M13 2L4 14h5v8l9-12h-5z" fill="currentColor"/>
-      </svg>
-      <span class="brand-text">Roblox Helper</span>
+      <img src="/assets/gradient.png" class="sidebar-logo" alt="OpenBlox">
+      <span class="brand-text">OpenBlox</span>
     </div>
 
     <div class="sidebar-model">
@@ -50,6 +48,7 @@
         <svg viewBox="0 0 24 24" width="15" height="15"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z" fill="currentColor"/></svg>
         Settings
       </button>
+      <div class="sidebar-version" id="version-display"></div>
     </div>
   </aside>
 
@@ -69,14 +68,9 @@
 
     <div id="input-bar">
       <div class="input-hint">
-        <span id="mcp-indicator" class="hidden">
-          <svg viewBox="0 0 24 24" width="11" height="11"><path d="M13 2L4 14h5v8l9-12h-5z" fill="currentColor"/></svg>
-          <span>MCP Active</span>
-          <span class="sep">&#183;</span>
-        </span>
         <span>Enter to send</span>
         <span class="sep">&#183;</span>
-        <span>Click a msg to edit</span>
+        <div id="ctx-bar" class="ctx-bar"><span class="ctx-fill" style="width:0%"></span><span class="ctx-text">0%</span></div>
       </div>
       <div class="input-box">
         <button id="tools-btn" class="tools-btn" onclick="toggleToolsPanel()" title="Tools">
@@ -86,13 +80,13 @@
         <button id="send-btn" onclick="send()">
           <svg viewBox="0 0 24 24" width="18" height="18"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" fill="currentColor"/></svg>
         </button>
-      </div>
-      <div id="tools-panel" class="tools-panel hidden">
-        <div class="tools-panel-head">
-          <span>Tools</span>
-          <button onclick="toggleToolsPanel()">&times;</button>
+        <div id="tools-panel">
+          <div class="tools-panel-head">
+            <span>Integrations</span>
+            <button onclick="toggleToolsPanel()">&times;</button>
+          </div>
+          <div id="tools-list"></div>
         </div>
-        <div id="tools-list"></div>
       </div>
     </div>
   </main>
@@ -115,7 +109,7 @@
       <div id="tp-api" class="tab-pane active">
         <div class="field">
           <label>API Key</label>
-          <input type="password" id="s-apikey" placeholder="Paste your Kilo JWT token" spellcheck="false">
+          <input type="password" id="s-apikey" placeholder="Paste your API token" spellcheck="false">
         </div>
         <div class="field">
           <label>Model</label>

@@ -41,6 +41,11 @@ git clone https://github.com/Artemcik5/OpenBlox.git
 cd OpenBlox
 ```
 
+## Updating
+
+Download files, and replace old ones, if you keep things like chat and config the files they were, all of your things save.
+Working on a script!
+
 ## Contributing
 
 Contributions, suggestions, and experimentation are welcome.
