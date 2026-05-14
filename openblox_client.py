@@ -179,6 +179,9 @@ class OpenBloxClient:
                 continue
             msg = resp.get("message", {})
             new_content = msg.get("content") or ""
+            # Skip API error messages
+            if new_content and ("API returned non-JSON" in new_content or "Connection error:" in new_content or "Response error:" in new_content):
+                new_content = ""
             if new_content:
                 if content:
                     content += "\n\n" + new_content
