@@ -69,6 +69,10 @@ class ToolToggle(BaseModel):
     session_id: Optional[str] = None
 
 
+class CompactRequest(BaseModel):
+    session_id: Optional[str] = None
+
+
 def make_client():
     ctx = wm.openblox_config.get("user_context", "")
     return OpenBloxClient(
@@ -387,6 +391,34 @@ async def chat_stream(req: ChatRequest):
         yield f"data: {json_mod.dumps({'type': 'session', 'session': session.to_dict()})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.post("/api/compact")
+async def compact_chat(req: CompactRequest):
+    try:
+        ai_client = make_client()
+        session = None
+        if req.session_id:
+            session = _get_session(req.session_id)
+        if not session:
+            session = store.get_active()
+        if session.model:
+            ai_client.model = session.model
+
+        note = _compact_session(session, ai_client)
+        if note:
+            # Add system message about compaction
+            session.add_message("assistant", f"_Context compacted._")
+            store.save_session(session)
+            return {
+                "ok": True,
+                "note": note,
+                "session": session.to_dict(),
+                "context_pct": session.context_pct(),
+            }
+        return {"ok": False, "note": "Not enough messages to compact."}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @app.get("/api/websites")

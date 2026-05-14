@@ -1,5 +1,6 @@
 let curId = null, sending = false, abortController = null;
 let editingIndex = null;
+let _contextPct = 0;
 const TIMEOUT_MS = 120000;
 
 const $ = s => document.querySelector(s);
@@ -47,11 +48,11 @@ function collapseLongMessages() {
 function updateContextBar(sess) {
   const el = document.getElementById('ctx-bar');
   if (!el || !sess) { return; }
-  const pct = sess.context_pct !== undefined ? sess.context_pct : 0;
+  _contextPct = sess.context_pct !== undefined ? sess.context_pct : 0;
   const used = sess.context_tokens || 0;
   const limit = sess.context_limit || 262144;
-  el.innerHTML = `<span class="ctx-fill" style="width:${Math.min(pct, 100)}%"></span><span class="ctx-text">${pct}% (${(used/1000).toFixed(0)}K / ${(limit/1000).toFixed(0)}K)</span>`;
-  el.className = 'ctx-bar' + (pct >= 80 ? ' ctx-high' : pct >= 60 ? ' ctx-warn' : '');
+  el.innerHTML = `<span class="ctx-fill" style="width:${Math.min(_contextPct, 100)}%"></span><span class="ctx-text">${_contextPct}% (${(used/1000).toFixed(0)}K / ${(limit/1000).toFixed(0)}K)</span>`;
+  el.className = 'ctx-bar' + (_contextPct >= 80 ? ' ctx-high' : _contextPct >= 60 ? ' ctx-warn' : '');
 }
 
 function updateSendBtn() {
@@ -277,6 +278,8 @@ function editMessage(index) {
   const group = groups[index];
   const textEl = group.querySelector('.msg.user');
   if (!textEl) return;
+  // Prevent editing messages that start with /
+  if (textEl.textContent.trim().startsWith('/')) return;
 
   editingIndex = index;
   document.getElementById('chat-input').value = textEl.textContent;
@@ -308,6 +311,32 @@ async function send() {
 
   // Block sending while AI is generating — use Stop button instead
   if (sending) {
+    return;
+  }
+
+  // Handle /commands
+  if (text.startsWith('/')) {
+    if (text === '/compact') {
+      sending = false;
+      const d = await api('/api/compact', { method: 'POST', body: JSON.stringify({ session_id: curId }) });
+      if (d.ok) {
+        toast('Context compacted!', 'ok');
+        await loadSession(curId);
+      } else {
+        toast(d.note || 'Failed to compact', 'err');
+      }
+      updateSendBtn();
+      return;
+    }
+    toast('Unknown command: ' + text, 'err');
+    updateSendBtn();
+    return;
+  }
+
+  // Block sending if context is over 70%
+  if (_contextPct >= 70) {
+    showError('Context is ' + _contextPct + '% full. Type /compact to free up space before continuing.', 'warn');
+    updateSendBtn();
     return;
   }
 
