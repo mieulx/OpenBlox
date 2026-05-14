@@ -746,9 +746,7 @@ function showWelcome() {
   const msgs = document.getElementById('messages');
   msgs.innerHTML = `
     <div class="welcome">
-      <svg class="bolt-big" viewBox="0 0 24 24">
-        <path d="M13 2L4 14h5v8l9-12h-5z" fill="currentColor"/>
-      </svg>
+      <img src="/assets/gradient.png" class="bolt-big" alt="OpenBlox">
       <h1>OpenBlox</h1>
       <p>Roblox Studio AI assistant.</p>
     </div>
@@ -758,9 +756,7 @@ function showWelcome() {
 function welcome() {
   return `
     <div class="welcome">
-      <svg class="bolt-big" viewBox="0 0 24 24">
-        <path d="M13 2L4 14h5v8l9-12h-5z" fill="currentColor"/>
-      </svg>
+      <img src="/assets/gradient.png" class="bolt-big" alt="OpenBlox">
       <h1>OpenBlox</h1>
       <p>Roblox Studio AI assistant.</p>
     </div>
