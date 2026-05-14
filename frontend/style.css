@@ -311,7 +311,7 @@ details.think-fold>:not(summary){padding:8px 12px;font-size:12px;line-height:1.5
 #input-bar{padding:8px 20px 14px;border-top:1px solid var(--border);background:var(--bg1)}
 .input-box{
   max-width:720px;margin:0 auto;
-  display:flex;gap:6px;align-items:flex-end;
+  display:flex;gap:4px;align-items:flex-end;
   background:var(--bg2);border:1px solid var(--border);
   border-radius:var(--radius);padding:3px 3px 3px 12px;
   transition:border-color 0.2s,box-shadow 0.2s;
@@ -337,52 +337,50 @@ details.think-fold>:not(summary){padding:8px 12px;font-size:12px;line-height:1.5
 
 /* Tools Button */
 .tools-btn{
-  width:34px;height:34px;border-radius:var(--radius-sm);
+  width:30px;height:30px;border-radius:6px;
   border:1px solid var(--border);background:var(--bg3);
-  color:var(--text2);cursor:pointer;
+  color:var(--text3);cursor:pointer;
   display:flex;align-items:center;justify-content:center;
-  transition:all 0.15s;flex-shrink:0;margin-left:4px;
+  transition:all 0.15s;flex-shrink:0;margin:0 2px;
 }
 .tools-btn:hover{border-color:var(--cyan);color:var(--cyan);background:var(--cyan-dim)}
 .tools-btn.active{border-color:var(--cyan);color:var(--cyan);background:var(--cyan-dim)}
 
-/* Tools Panel */
-.tools-panel{
-  max-width:720px;margin:4px auto 0;padding:0 4px;
+/* Tools Panel (slide-up drawer) */
+#tools-panel{
+  max-width:720px;margin:0 auto;width:100%;
   background:var(--bg2);border:1px solid var(--border);
-  border-radius:var(--radius-sm);
+  border-radius:var(--radius-sm) var(--radius-sm) 0 0;
+  border-bottom:none;
+  overflow:hidden;
+  max-height:0;
+  transition:max-height 0.25s ease;
 }
-.tools-panel.hidden{display:none}
+#tools-panel.open{max-height:160px}
 .tools-panel-head{
   display:flex;align-items:center;justify-content:space-between;
-  padding:6px 10px;font-size:12px;color:var(--text2);font-weight:500;
+  padding:5px 10px;font-size:11px;color:var(--text2);font-weight:500;
   border-bottom:1px solid var(--border);
 }
-.tools-panel-head button{background:none;border:none;color:var(--text3);cursor:pointer;font-size:15px}
+.tools-panel-head button{background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;padding:0 3px}
 .tools-panel-head button:hover{color:var(--text)}
-.tool-item{
-  display:flex;align-items:center;gap:8px;
-  padding:7px 10px;font-size:12px;color:var(--text2);
-  border-bottom:1px solid var(--border);
-}
-.tool-item:last-child{border-bottom:none}
-.tool-item .tool-info{flex:1}
-.tool-item .tool-name{color:var(--text);font-weight:500}
-.tool-status{font-size:10px;color:var(--cyan);display:block;margin-top:1px}
-.tool-item .tool-desc{font-size:11px;color:var(--text3);margin-top:1px}
+.tool-item{display:flex;align-items:center;gap:6px;padding:4px 10px;font-size:12px;color:var(--text2)}
+.tool-item .tool-info{flex:1;display:flex;align-items:center;gap:6px}
+.tool-item .tool-name{color:var(--text)}
+.tool-status{font-size:10px;color:var(--cyan)}
 .tool-switch{
-  width:30px;height:16px;border-radius:8px;
+  width:26px;height:14px;border-radius:7px;
   background:var(--bg4);border:1px solid var(--border);
   cursor:pointer;position:relative;flex-shrink:0;
   transition:all 0.2s;
 }
 .tool-switch.on{background:var(--cyan-dim);border-color:var(--cyan)}
 .tool-switch::after{
-  content:'';position:absolute;top:2px;left:2px;
+  content:'';position:absolute;top:1px;left:1px;
   width:10px;height:10px;border-radius:50%;
   background:var(--text3);transition:all 0.2s;
 }
-.tool-switch.on::after{left:16px;background:var(--cyan);box-shadow:0 0 4px var(--cyan)}
+.tool-switch.on::after{left:13px;background:var(--cyan);box-shadow:0 0 4px var(--cyan)}
 
 
 
@@ -484,10 +482,6 @@ details.think-fold>:not(summary){padding:8px 12px;font-size:12px;line-height:1.5
   font-size:11px;color:var(--text3);
 }
 .input-hint .sep{color:var(--border2);font-weight:bold}
-.input-hint svg{opacity:0.5;flex-shrink:0}
-#mcp-indicator{color:var(--cyan);display:inline-flex;align-items:center;gap:3px}
-#mcp-indicator.hidden{display:none}
-#mcp-indicator svg{opacity:0.8}
 
 /* ─── Edit Mode ─── */
 .editing .input-box{border-color:var(--cyan);box-shadow:0 0 20px var(--cyan-glow)}

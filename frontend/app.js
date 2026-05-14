@@ -737,22 +737,13 @@ function toast(msg, type) {
 async function toggleToolsPanel() {
   const panel = document.getElementById('tools-panel');
   const btn = document.getElementById('tools-btn');
-  if (panel.classList.contains('hidden')) {
-    panel.classList.remove('hidden');
+  if (!panel.classList.contains('open')) {
+    panel.classList.add('open');
     btn.classList.add('active');
     await refreshTools();
   } else {
-    panel.classList.add('hidden');
+    panel.classList.remove('open');
     btn.classList.remove('active');
-  }
-}
-
-let _mcpActive = false;
-
-function updateMCPIndicator() {
-  const el = document.getElementById('mcp-indicator');
-  if (el) {
-    el.classList.toggle('hidden', !_mcpActive);
   }
 }
 
@@ -760,9 +751,7 @@ async function refreshTools() {
   try {
     const d = await api('/api/tools?session_id=' + (curId || ''));
     const el = document.getElementById('tools-list');
-    _mcpActive = false;
     el.innerHTML = d.tools.map(t => {
-      if (t.enabled && t.mcp_count) _mcpActive = true;
       return `
         <div class="tool-item">
           <div class="tool-info">
@@ -772,7 +761,6 @@ async function refreshTools() {
           <div class="tool-switch ${t.enabled ? 'on' : ''}" onclick="toggleTool('${t.id}')"></div>
         </div>`;
     }).join('');
-    updateMCPIndicator();
   } catch {}
 }
 
