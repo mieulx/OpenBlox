@@ -133,7 +133,6 @@ async function loadSession(id) {
   try {
     const d = await api('/api/sessions/' + id);
     m.innerHTML = d.messages.map((msg, i) => renderMsg(msg.role, msg.content, i, msg.timestamp)).join('');
-    buildChecklist(d.messages);
     scrollDown();
   } catch { showWelcome(); }
 }
@@ -305,7 +304,6 @@ async function send() {
 
     const sess = await api('/api/sessions/' + curId);
     msgs.innerHTML = sess.messages.map((msg, i) => renderMsg(msg.role, msg.content, i)).join('');
-    buildChecklist(sess.messages);
     scrollDown();
     refreshSessions();
   } catch (e) {
@@ -503,58 +501,7 @@ function toggleChecklistItem(cb, cid) {
   if (span) span.textContent = done + '/' + total;
 }
 
-function buildChecklist(messages) {
-  const panel = document.getElementById('checklist-panel');
-  const body = document.getElementById('cp-body');
-  // Find the last assistant message
-  let last = null;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === 'assistant') { last = messages[i].content; break; }
-  }
-  if (!last) { panel.classList.add('hidden'); return; }
 
-  // Extract numbered steps from the full text (including [DONE] markers)
-  const stepRegex = /(?:^|\n)\s*(?:\[DONE\]\s*)?(\d+)[\.\)]\s+(.+?)(?=\n\s*(?:\[DONE\]\s*)?\d+[\.\)]|\n\n|$)/g;
-  const steps = [];
-  let m;
-  while ((m = stepRegex.exec(last)) !== null) {
-    const num = parseInt(m[1]);
-    const text = m[2].trim();
-    // Check if this step has [DONE] anywhere before it in the text
-    const before = last.slice(0, m.index);
-    const isDone = /\[DONE\]/.test(before.slice(-200));
-    if (!steps.some(s => s.num === num)) {
-      steps.push({ num, text, done: isDone });
-    }
-  }
-
-  if (steps.length < 2) { panel.classList.add('hidden'); return; }
-
-  body.innerHTML = steps.map(s =>
-    `<div class="cp-item ${s.done ? 'done' : ''}"><span class="cp-dot"></span><span class="cp-text">${esc(s.text)}</span></div>`
-  ).join('');
-  panel.classList.remove('hidden');
-  const head = document.querySelector('.cp-head');
-  if (head) {
-    head.classList.add('collapsed');
-    const count = head.querySelector('.cp-count');
-    if (count) count.textContent = steps.length + ' tasks';
-  }
-  // Collapse body to show only first 2 items
-  body.classList.add('collapsed');
-}
-
-function togglePlan() {
-  const head = document.querySelector('.cp-head');
-  const body = document.getElementById('cp-body');
-  if (!head || !body) return;
-  head.classList.toggle('collapsed');
-  body.classList.toggle('collapsed');
-}
-
-function dismissChecklist() {
-  document.getElementById('checklist-panel').classList.add('hidden');
-}
 
 function fmt(t) {
   t = t.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
@@ -564,6 +511,7 @@ function fmt(t) {
     const rawAttr = code.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '&#10;');
     return `<div class="pre-wrap"><pre id="${id}" data-code="${rawAttr}">${highlighted}</pre><button class="copy-btn" onclick="copyCode('${id}', this)">Copy</button></div>`;
   });
+  t = renderChecklist(t);
   t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
   t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   t = t.replace(/(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)/g, '<em>$1</em>');
