@@ -23,8 +23,6 @@ class ChatMessage:
 
 MODEL_CONTEXTS = {
     "nvidia/nemotron-3-super-120b-a12b:free": 262144,
-    "x-ai:grok-code-fast-1:optimized:free": 131072,
-    "kilo-auto/free": 128000,
 }
 DEFAULT_CONTEXT = 128000
 
