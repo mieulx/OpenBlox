@@ -299,40 +299,76 @@ async function send() {
     showError('Taking longer than expected...', 'warn');
   }, TIMEOUT_MS);
 
+  let accumulatedContent = '';
+  let thinkingEl = document.getElementById(tid);
+
   try {
     const body = { message: text, session_id: curId, dev_mode: dev };
     if (editIdx !== null) body.edit_index = editIdx;
 
-    const data = await api('/api/chat', {
+    const resp = await fetch('/api/chat/stream', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: abortController.signal,
     });
 
-    clearTimeout(_sendTimer);
-    if (abortController.signal.aborted) return;
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
 
-    document.getElementById(tid)?.remove();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() || '';
 
-    if (dev && data.dev_chunks.length) {
-      showDev(data.dev_chunks);
-    } else {
-      hideDev();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6));
+          if (event.type === 'thinking') {
+            accumulatedContent = event.content;
+            if (thinkingEl) {
+              thinkingEl.innerHTML = `<span>${esc(event.content.slice(0, 80))}${event.content.length > 80 ? '...' : ''}</span>`;
+            }
+          } else if (event.type === 'dev') {
+            if (event.chunks && event.chunks.length) {
+              showDev(event.chunks);
+            } else {
+              hideDev();
+            }
+          } else if (event.type === 'tool') {
+            const toolLine = `▸ Called **${event.tool}** through ${event.integration}`;
+            if (thinkingEl) {
+              thinkingEl.innerHTML = thinkingEl.innerHTML + `<br><span style="color:var(--cyan);font-size:11px">${esc(toolLine)}</span>`;
+            }
+          } else if (event.type === 'done') {
+            thinkingEl?.remove();
+            accumulatedContent = event.content || '(no response)';
+          } else if (event.type === 'session') {
+            clearTimeout(_sendTimer);
+            if (abortController.signal.aborted) return;
+            const sess = event.session;
+            msgs.innerHTML = sess.messages.map((msg, i) => renderMsg(msg.role, msg.content, i, msg.timestamp)).join('');
+            scrollDown();
+            refreshSessions();
+          } else if (event.type === 'error') {
+            clearTimeout(_sendTimer);
+            thinkingEl?.remove();
+            showError(event.content, 'err');
+            msgs.insertAdjacentHTML('beforeend', renderMsg('assistant', '_Error: ' + esc(event.content) + '_', -1));
+            scrollDown();
+          }
+        } catch (e) { /* skip malformed events */ }
+      }
     }
-
-    const sess = data.session;
-    msgs.innerHTML = sess.messages.map((msg, i) => renderMsg(msg.role, msg.content, i, msg.timestamp)).join('');
-    scrollDown();
-    refreshSessions();
   } catch (e) {
     clearTimeout(_sendTimer);
     if (abortController?.signal.aborted) { updateSendBtn(); return; }
-    document.getElementById(tid)?.remove();
-    const errMsg = e.message.includes('Failed to fetch')
-      ? 'Cannot reach server.'
-      : e.message.includes('timed out')
-      ? 'Request timed out.'
-      : e.message;
+    thinkingEl?.remove();
+    const errMsg = e.message;
     showError(errMsg, 'err');
     msgs.insertAdjacentHTML('beforeend', renderMsg('assistant', '_Error: ' + esc(errMsg) + '_', -1));
     scrollDown();

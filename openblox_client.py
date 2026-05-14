@@ -218,7 +218,8 @@ class OpenBloxClient:
     def chat(self, messages: list, max_tokens: int = 4096,
              extra_context: str = "", tools: list = None,
              tool_handler=None,
-             advanced_thinking: bool = False) -> Optional[str]:
+             advanced_thinking: bool = False,
+             integration_name: str = "") -> Optional[str]:
         if not self.api_key:
             return None
         full = [{"role": "system", "content": self._build_system(extra_context)}]
@@ -232,6 +233,86 @@ class OpenBloxClient:
         if tools:
             payload["tools"] = tools
         return self._run_tool_loop(full, payload, tools, tool_handler, advanced_thinking)
+
+    def chat_stream(self, messages: list, max_tokens: int = 4096,
+                    extra_context: str = "", tools: list = None,
+                    tool_handler=None,
+                    advanced_thinking: bool = False,
+                    integration_name: str = ""):
+        if not self.api_key:
+            yield {"type": "error", "content": "No API key"}
+            return
+        full = [{"role": "system", "content": self._build_system(extra_context)}]
+        full.extend(messages)
+        payload = {
+            "model": self.model,
+            "messages": full,
+            "temperature": self.temperature,
+            "max_tokens": max_tokens,
+        }
+        if tools:
+            payload["tools"] = tools
+
+        max_rounds = 15
+        reviewed = False
+        content = ""
+        for _ in range(max_rounds):
+            resp = self._send_payload(payload)
+            if resp is None:
+                if content:
+                    break
+                continue
+            msg = resp.get("message", {})
+            new_content = msg.get("content") or ""
+            if new_content:
+                if content:
+                    content += "\n\n" + new_content
+                else:
+                    content = new_content
+                yield {"type": "thinking", "content": new_content}
+            tool_calls = msg.get("tool_calls")
+            if not tool_calls or not tool_handler:
+                if content:
+                    if advanced_thinking and not reviewed:
+                        reviewed = True
+                        full.append({"role": "user", "content": "Review what you just did. Check for errors, improvements, or missing details. Then provide a final improved response."})
+                        payload["messages"] = full
+                        if tools:
+                            payload["tools"] = tools
+                        continue
+                    break
+                full.append({"role": "user", "content": "Please provide your response now."})
+                payload["messages"] = full
+                if tools:
+                    payload["tools"] = tools
+                continue
+            full.append(msg)
+            for tc in tool_calls:
+                fn = tc.get("function", {})
+                name = fn.get("name", "")
+                yield {"type": "tool", "tool": name, "integration": integration_name or "Tool"}
+                try:
+                    args = json.loads(fn.get("arguments", "{}"))
+                except json.JSONDecodeError:
+                    args = {}
+                result = tool_handler(name, args)
+                full.append({"role": "tool", "tool_call_id": tc["id"], "content": result or "{}"})
+                if result:
+                    try:
+                        summary = json.loads(result)
+                        texts = [item.get("text", "") for item in summary if isinstance(item, dict) and item.get("type") == "text"]
+                        if texts:
+                            tool_feedback = f"\n\n> **MCP:** Called `{name}` — {texts[0][:200]}"
+                            if content:
+                                content += tool_feedback
+                            else:
+                                content = tool_feedback.strip()
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            payload["messages"] = full
+            if tools:
+                payload["tools"] = tools
+        yield {"type": "done", "content": content.strip() if content else "(no response)"}
 
     def chat_with_context(self, messages: list, context: str,
                           max_tokens: int = 4096,

@@ -2,9 +2,9 @@ import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 
 import asyncio
-import json
+import json as json_mod
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -282,6 +282,75 @@ async def chat(req: ChatRequest):
         "dev_chunks": [{"heading": c.heading_path or c.source_url, "text": c.text[:500]}
                        for c in dev_chunks[:5]] if req.dev_mode else [],
     }
+
+
+def _get_integration_name(st: dict) -> str:
+    for tid, cfg in tools_mgr.tool_defs.items():
+        if st.get(tid, False) and cfg.get("command"):
+            return cfg.get("name", "Tool")
+    return ""
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(req: ChatRequest):
+    ai_client = make_client()
+    if not ai_client.is_configured():
+        return JSONResponse(status_code=400, content={"error": "API key not configured."})
+
+    session = None
+    if req.session_id:
+        for s in store.sessions:
+            if s.id == req.session_id:
+                session = s
+                break
+    if not session:
+        session = store.get_active()
+
+    if req.edit_index is not None and 0 <= req.edit_index < len(session.messages):
+        session.messages = session.messages[:req.edit_index]
+        if req.message:
+            session.add_message("user", req.message)
+    elif req.message:
+        session.add_message("user", req.message)
+
+    if len(session.messages) == 1:
+        store.rename_session(session.id, req.message[:40] if req.message else "Chat")
+    store.save_session(session)
+
+    history = [{"role": m.role, "content": m.content} for m in session.messages]
+    st = session.tools
+    tool_ctx = tools_mgr.get_enabled_context(st)
+    extra = tool_ctx if tool_ctx else ""
+    openai_tools = tools_mgr.get_openai_tools(st)
+    tool_handler = (lambda n, a: tools_mgr.handle_tool_call(n, a, st)) if openai_tools else None
+    advanced = st.get("advanced_thinking", False)
+    integration_name = _get_integration_name(st)
+
+    dev_chunks = []
+    if req.dev_mode:
+        dev_chunks = dev_proc.fetch_for_query(req.message or "")
+
+    def event_stream():
+        final_content = "(no response)"
+        if req.dev_mode and dev_chunks:
+            yield f"data: {json_mod.dumps({'type': 'dev', 'chunks': [{'heading': c.heading_path or c.source_url, 'text': c.text[:500]} for c in dev_chunks[:5]]})}\n\n"
+        if not ai_client.is_configured():
+            yield f"data: {json_mod.dumps({'type': 'error', 'content': 'API key not configured.'})}\n\n"
+            return
+        for event in ai_client.chat_stream(
+            history, extra_context=extra,
+            tools=openai_tools or None, tool_handler=tool_handler,
+            advanced_thinking=advanced, integration_name=integration_name,
+        ):
+            if event["type"] == "done":
+                final_content = event["content"]
+            yield f"data: {json_mod.dumps(event)}\n\n"
+        
+        session.add_message("assistant", final_content)
+        store.save_session(session)
+        yield f"data: {json_mod.dumps({'type': 'session', 'session': session.to_dict()})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.get("/api/websites")
