@@ -263,6 +263,47 @@ class ToolsManager:
             })
         return all_tools
     
+    def _filter_search_results(self, tool_name: str, raw_text: str) -> str:
+        """Sort search results by likes + recency, return top 3."""
+        is_search = any(x in tool_name.lower() for x in ['search', 'find', 'query', 'lookup', 'browse'])
+        if not is_search:
+            return raw_text
+        try:
+            items = json.loads(raw_text)
+            if not isinstance(items, list):
+                return raw_text
+            scored = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                likes = abs(item.get('likeCount') or item.get('likes') or item.get('rating') or item.get('favorites') or 0)
+                updated = item.get('updated') or item.get('lastUpdated') or item.get('date') or ''
+                scored.append((likes, updated, item))
+            scored.sort(key=lambda x: (-x[0], x[1] or ''))
+            top = [s[2] for s in scored[:3]]
+            return json.dumps(top) if top else raw_text
+        except (json.JSONDecodeError, TypeError):
+            # Try line-by-line: look for "Likes: N" patterns
+            lines = raw_text.split('\n')
+            groups = []
+            current = []
+            for line in lines:
+                if line.strip() and not line.startswith(' '):
+                    if current:
+                        groups.append('\n'.join(current))
+                    current = [line]
+                else:
+                    current.append(line)
+            if current:
+                groups.append('\n'.join(current))
+            def extract_likes(g):
+                import re
+                m = re.search(r'(?:Likes|Rating|Favorites):\s*(\d+)', g, re.IGNORECASE)
+                return int(m.group(1)) if m else 0
+            groups.sort(key=extract_likes, reverse=True)
+            return '\n\n'.join(groups[:3])
+        return raw_text
+
     def handle_tool_call(self, tool_name: str, arguments: dict, session_tools: dict) -> Optional[str]:
         for tid in self.tool_defs:
             if self.is_enabled(tid, session_tools) and tid in self.mcp_clients and self.mcp_clients[tid].is_running():
@@ -273,7 +314,10 @@ class ToolsManager:
                         if isinstance(r, dict):
                             content = r.get("content", [])
                             if isinstance(content, list):
-                                return json.dumps([c for c in content if c.get("type") == "text"])
+                                texts = [c.get("text", "") for c in content if c.get("type") == "text"]
+                                combined = "\n".join(texts)
+                                filtered = self._filter_search_results(tool_name, combined)
+                                return json.dumps([{"type": "text", "text": filtered}]) if texts else json.dumps(content)
                             return json.dumps(content)
                         return json.dumps(r)
                     return json.dumps(result.get("error", "Tool call failed"))
