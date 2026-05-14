@@ -71,7 +71,7 @@ function updateSendBtn() {
 function stopThinking() {
   abortFetch();
   clearTimeout(_sendTimer);
-  document.querySelectorAll('.think').forEach(el => el.remove());
+  hideThinkBar();
   sending = false;
   document.getElementById('send-btn').disabled = false;
   updateSendBtn();
@@ -289,6 +289,45 @@ function editMessage(index) {
   scrollDown();
 }
 
+// ─── Thinking Bar ───
+function showThinkBar() {
+  const bar = document.getElementById('think-bar');
+  const body = document.getElementById('tb-body');
+  const steps = document.getElementById('tb-steps');
+  bar.classList.remove('hidden');
+  body.classList.add('collapsed');
+  steps.innerHTML = '';
+  document.querySelector('.tb-head').classList.add('collapsed');
+}
+
+function hideThinkBar() {
+  document.getElementById('think-bar').classList.add('hidden');
+}
+
+function setThinkStatus(text) {
+  const el = document.querySelector('.tb-status');
+  if (el) el.textContent = text;
+}
+
+function addThinkStep(type, text) {
+  const steps = document.getElementById('tb-steps');
+  if (!steps) return;
+  const cls = type === 'tool' ? 'accent' : type === 'output' ? 'dim' : '';
+  const label = type === 'tool' ? '▸ ' : '';
+  steps.innerHTML += `<div class="tb-step"><span class="${cls}">${label}${esc(text)}</span></div>`;
+  // Auto scroll to bottom
+  const body = document.getElementById('tb-body');
+  if (body) body.scrollTop = body.scrollHeight;
+}
+
+function toggleThinkBar() {
+  const head = document.querySelector('.tb-head');
+  const body = document.getElementById('tb-body');
+  if (!head || !body) return;
+  head.classList.toggle('collapsed');
+  body.classList.toggle('collapsed');
+}
+
 function cancelEdit() {
   editingIndex = null;
   document.getElementById('input-bar').classList.remove('editing');
@@ -359,11 +398,7 @@ async function send() {
   }
   editingIndex = null;
 
-  const tid = 't-' + Date.now();
-  msgs.insertAdjacentHTML('beforeend',
-    `<div id="${tid}" class="think"><span>Thinking</span><span class="d"><span></span><span></span><span></span></span></div>`
-  );
-  scrollDown();
+  showThinkBar();
   document.getElementById('send-btn').disabled = false;
   updateSendBtn();
 
@@ -371,18 +406,12 @@ async function send() {
   let timedOut = false;
   _sendTimer = setTimeout(() => {
     timedOut = true;
-    const thinkEl = document.getElementById(tid);
-    if (thinkEl) thinkEl.innerHTML = '<span>Still thinking...</span><span class="d"><span></span><span></span><span></span></span>';
+    setThinkStatus('Still thinking...');
     showError('Taking longer than expected...', 'warn');
-    // Third phase: after another 60s
-    setTimeout(() => {
-      const el2 = document.getElementById(tid);
-      if (el2) el2.innerHTML = '<span>Still thinking, really</span><span class="d"><span></span><span></span><span></span></span>';
-    }, 60000);
+    setTimeout(() => setThinkStatus('Still thinking, really'), 60000);
   }, TIMEOUT_MS);
 
   let accumulatedContent = '';
-  let thinkingEl = document.getElementById(tid);
 
   try {
     const body = { message: text, session_id: curId, dev_mode: dev };
@@ -412,9 +441,8 @@ async function send() {
           const event = JSON.parse(line.slice(6));
           if (event.type === 'thinking') {
             accumulatedContent = event.content;
-            if (thinkingEl) {
-              thinkingEl.innerHTML = `<span>${esc(event.content.slice(0, 80))}${event.content.length > 80 ? '...' : ''}</span>`;
-            }
+            setThinkStatus(event.content.slice(0, 60) + (event.content.length > 60 ? '...' : ''));
+            addThinkStep('text', event.content.slice(0, 80));
           } else if (event.type === 'dev') {
             if (event.chunks && event.chunks.length) {
               showDev(event.chunks);
@@ -422,16 +450,12 @@ async function send() {
               hideDev();
             }
           } else if (event.type === 'tool') {
-            if (thinkingEl) {
-              thinkingEl.innerHTML += `<div class="tl-call"><span class="tl-badge">${esc(event.tool)}</span></div>`;
-            }
+            addThinkStep('tool', event.tool + ' through ' + event.integration);
           } else if (event.type === 'tool_output') {
-            if (thinkingEl) {
-              const out = esc(event.output);
-              if (out) thinkingEl.innerHTML += `<div class="tl-out">${out}</div>`;
-            }
+            const out = event.output;
+            if (out) addThinkStep('output', out.slice(0, 120));
           } else if (event.type === 'done') {
-            thinkingEl?.remove();
+            hideThinkBar();
             accumulatedContent = event.content || '(no response)';
           } else if (event.type === 'session') {
             clearTimeout(_sendTimer);
@@ -444,7 +468,7 @@ async function send() {
             refreshSessions();
           } else if (event.type === 'error') {
             clearTimeout(_sendTimer);
-            thinkingEl?.remove();
+            hideThinkBar();
             showError(event.content, 'err');
             msgs.insertAdjacentHTML('beforeend', renderMsg('assistant', '_Error: ' + esc(event.content) + '_', -1));
             scrollDown();
@@ -455,7 +479,7 @@ async function send() {
   } catch (e) {
     clearTimeout(_sendTimer);
     if (abortController?.signal.aborted) { updateSendBtn(); return; }
-    thinkingEl?.remove();
+    hideThinkBar();
     const errMsg = e.message;
     showError(errMsg, 'err');
     msgs.insertAdjacentHTML('beforeend', renderMsg('assistant', '_Error: ' + esc(errMsg) + '_', -1));
