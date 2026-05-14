@@ -304,6 +304,19 @@ class ToolsManager:
             return '\n\n'.join(groups[:3])
         return raw_text
 
+    def _clean_tool_output(self, text: str) -> str:
+        """Fix common MCP formatting issues: → to newlines, digits→ to line numbers."""
+        import re
+        # Replace → with newline
+        text = text.replace('→', '\n')
+        # Fix patterns like "1\ncontent1\n2\ncontent2" → "1. content1\n2. content2"
+        text = re.sub(r'(\d+)\n(?=\S)', r'\1. ', text)
+        # Remove leading line numbers on each line like "1→" or "1. "
+        text = re.sub(r'^\d+[.→]\s*', '', text, flags=re.MULTILINE)
+        # Collapse multiple blank lines
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        return text.strip()
+
     def handle_tool_call(self, tool_name: str, arguments: dict, session_tools: dict) -> Optional[str]:
         for tid in self.tool_defs:
             if self.is_enabled(tid, session_tools) and tid in self.mcp_clients and self.mcp_clients[tid].is_running():
@@ -316,6 +329,7 @@ class ToolsManager:
                             if isinstance(content, list):
                                 texts = [c.get("text", "") for c in content if c.get("type") == "text"]
                                 combined = "\n".join(texts)
+                                combined = self._clean_tool_output(combined)
                                 filtered = self._filter_search_results(tool_name, combined)
                                 return json.dumps([{"type": "text", "text": filtered}]) if texts else json.dumps(content)
                             return json.dumps(content)
