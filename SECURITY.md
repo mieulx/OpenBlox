@@ -1,91 +1,155 @@
-# Security Review — OpenBlox
+# Security Notes
 
-## Summary
-This app runs **locally only** (localhost:8520). It stores an API key locally and communicates with the Kilo AI API. There are no user accounts, no shared databases, and no external network exposure in normal use.
+## Overview
 
----
+OpenBlox is intended to run locally on a single Windows machine. The backend serves a local web UI, stores configuration and chats on disk, and sends model requests to the configured external AI API.
 
-## Issues Found
+Current defaults in the codebase:
 
-### 1. API key stored in plaintext (config.json)
-- **File**: `config.json`
-- **Risk**: Low (local-only app)
-- **Mitigation**: `config.json` is in `.gitignore` — never pushed to GitHub.
-- **Note**: The key is readable by anyone with access to your filesystem.
+- Backend bind address: `127.0.0.1`
+- Default port: `8520`
+- Allowed browser origins:
+  - `http://localhost:8520`
+  - `http://127.0.0.1:8520`
+- User data location:
+  - `%APPDATA%\OpenBlox\config.json`
+  - `%APPDATA%\OpenBlox\chats\`
 
-### 2. CORS allows all origins
-- **File**: `server.py:22`
-  ```python
-  app.add_middleware(CORSMiddleware, allow_origins=["*"], ...)
-  ```
-- **Risk**: Low (local-only). If the port were exposed to a network, any website could call the API.
-- **Fix**: Change to `allow_origins=["http://localhost:8520"]` for production.
+## Data handled by the app
 
-### 3. No API authentication on the backend
-- **File**: `server.py` — all endpoints
-- **Risk**: Low. The server listens on `0.0.0.0:8520` which is accessible to anyone on the local network.
-- **Fix**: Change `host` to `"127.0.0.1"` in production to bind to localhost only.
+OpenBlox may store or transmit:
 
-### 4. Subprocess runs user-defined MCP command
-- **File**: `tools_manager.py:22-29`
-  ```python
-  self.process = subprocess.Popen(expanded, ...)
-  ```
-- **Risk**: Low. The command is hardcoded (`cmd.exe /c %LOCALAPPDATA%\Roblox\mcp.bat`). `%LOCALAPPDATA%` is expanded via `os.path.expandvars()`.
-- **Note**: If the `.bat` file were replaced by malware, the app would execute it.
-- **Fix**: Validate the resolved path exists and is within `%LOCALAPPDATA%\Roblox\` before execution.
+- API keys
+- chat messages
+- model selection and temperature
+- user context/instructions
+- website source configuration
+- MCP tool outputs
 
-### 5. No timeout on MCP subprocess reads
-- **File**: `tools_manager.py:65`
-  ```python
-  line = self.process.stdout.readline()
-  ```
-- **Risk**: Medium. If the MCP server doesn't respond, `readline()` blocks **forever** — the entire server thread hangs.
-- **Fix**: Use `select()` or `threading.Thread` with a timeout wrapper.
+OpenBlox does not currently include:
 
-### 6. Session IDs exposed in URLs
-- **File**: `server.py:141,147,153,166`
-- **Risk**: Low (local-only). Session IDs are random 12-char hex strings (`uuid.uuid4().hex[:12]`).
-- **Note**: No sensitive data is keyed off sessions alone.
+- multi-user auth
+- role-based permissions
+- encryption at rest
+- server-side session auth
+- database-backed secret management
 
-### 7. No input length limits
-- **File**: `server.py:41-45` — ChatRequest accepts arbitrary-length messages.
-- **Risk**: Low. Messages are sent to the Kilo API which has its own limits.
-- **Fix**: Add `max_length` to Pydantic models.
+## Current security posture
 
-### 8. User context stored in config.json without sanitization
-- **File**: `server.py:111` — `cfg.user_context` is stored as-is.
-- **Risk**: Low. Content is only sent to the Kilo API, never executed.
+### Local-only backend
 
-### 9. Export header injection possible
-- **File**: `server.py:161-162`
-  ```python
-  headers={"Content-Disposition": f"attachment; filename={s.title}.txt"}
-  ```
-- **Risk**: Low. The session title is user-controlled but only affects the download filename. No path traversal possible since it's a header value, not a filesystem path.
+`server.py` runs Uvicorn on `127.0.0.1`, not `0.0.0.0`. This is a good default for a local desktop tool because it avoids exposing the API to the local network under normal use.
 
----
+### Restricted CORS
 
-## Recommendations
+CORS is limited to the two local frontend origins used by the app. This is safer than wildcard CORS for a localhost tool.
 
-| Priority | Fix |
-|----------|-----|
-| **High** | Add timeout to MCP `readline()` — wrap in `select()` or move to a thread with `Thread.join(timeout=5)` |
-| **Medium** | Bind server to `127.0.0.1` instead of `0.0.0.0` |
-| **Medium** | Restrict CORS to `http://localhost:8520` |
-| **Low** | Validate MCP `.bat` path exists before launching |
-| **Low** | Add `max_length=10000` to message fields in Pydantic models |
+### AppData persistence
 
----
+API keys and chats are stored in AppData instead of the repository folder. This reduces accidental loss during updates and reduces the chance of committing sensitive files from the working tree. It does not encrypt the data.
 
-## Dependencies with known issues
+### MCP process hardening
 
-All packages are standard/popular with no known critical CVEs relevant to this usage:
+The MCP client in `tools_manager.py` now includes:
 
-| Package | Version | Notes |
-|---------|---------|-------|
-| fastapi | latest | Standard web framework |
-| uvicorn | latest | ASGI server, local only |
-| requests | latest | HTTPS to Kilo API only |
-| beautifulsoup4 | latest | HTML parsing, fetch only |
-| lxml | latest | XML parsing |
+- explicit process start/stop handling
+- path existence checks for the Roblox MCP batch file
+- request/response tracking by id
+- background stdout and stderr readers
+- timeout-based waiting for MCP responses
+- restart/reconnect behavior when a tool call fails due to a dead client
+
+This is materially safer and more reliable than a blocking single-read approach.
+
+## Remaining risks
+
+### Plaintext API key storage
+
+The API key is still stored in plaintext JSON in `%APPDATA%\OpenBlox\config.json`.
+
+Risk:
+- anyone with access to the user profile can read it
+
+Mitigations you may want later:
+
+- Windows Credential Manager storage
+- DPAPI encryption
+- environment variable or token-provider support
+
+### No backend authentication
+
+Any local process able to reach `127.0.0.1:8520` can call the API routes while the app is running.
+
+Risk:
+- local malware or another local process could read or modify local app state
+
+This is acceptable for many local tools, but it is not a hardened trust boundary.
+
+### MCP trust boundary
+
+OpenBlox can launch a local MCP batch file from:
+
+`%LOCALAPPDATA%\Roblox\mcp.bat`
+
+Risk:
+- if that batch file or its downstream binaries are replaced, OpenBlox will execute the replaced code
+
+Current mitigation:
+- the path is expanded and checked for existence before launch
+
+Good future hardening:
+
+- validate the resolved path is inside the expected Roblox directory
+- verify file ownership or signature if practical
+
+### Prompt injection through tool or site content
+
+OpenBlox can ingest external web content and MCP tool output, then pass it to the model.
+
+Risk:
+- malicious or noisy content may influence model behavior
+
+The app does not currently implement a strong trust separation between user prompts, fetched content, and tool text beyond prompt wording and tool-loop control.
+
+### File-based persistence
+
+Chats are saved as individual JSON files in AppData.
+
+Risk:
+- local tampering is possible
+- there is no integrity checking
+
+### No explicit input size enforcement
+
+The app relies mostly on model/API limits and internal context handling rather than hard request-size validation on all user inputs.
+
+Risk:
+- oversized local requests may still create memory or UX issues
+
+## Security recommendations
+
+High value next steps:
+
+- move API key storage to Windows Credential Manager or DPAPI
+- add optional backend auth token for localhost API calls
+- add explicit maximum lengths for chat/config inputs
+- validate the resolved MCP batch path is inside the expected Roblox directory
+- add structured logging for updater and MCP failures
+- consider marking sensitive config fields more carefully in exported/debug contexts
+
+## Dependency and update posture
+
+The project currently uses standard Python packages such as:
+
+- `fastapi`
+- `uvicorn`
+- `pydantic`
+- `requests`
+- `beautifulsoup4`
+- `lxml`
+
+Security still depends on keeping these dependencies updated on the local machine. The provided Windows batch helper upgrades `pip` and reinstalls requirements, but it is not a vulnerability scanner.
+
+## Reporting
+
+If you discover a security issue, avoid posting secrets or exploit details publicly in issue threads. Share a minimal reproduction and affected files/flows privately with the maintainer first if possible.

@@ -4,7 +4,7 @@ OpenBlox Installer & Updater
 Clones/updates OpenBlox from GitHub while preserving config, chats, and assets.
 """
 
-import json
+import argparse
 import os
 import shutil
 import subprocess
@@ -19,50 +19,44 @@ import zipfile
 
 REPO_URL = "https://github.com/Artemcik5/OpenBlox.git"
 ZIP_URL = "https://github.com/Artemcik5/OpenBlox/archive/refs/heads/main.zip"
-KEEP_PATHS = {"config.json", "chats", "frontend/assets"}
+KEEP_PATHS = {"frontend/assets"}
 VERSION_URL = "https://raw.githubusercontent.com/Artemcik5/OpenBlox/main/version"
 
 
-def _norm(p: str) -> str:
-    return os.path.normpath(p).lower().replace("\\", "/")
-
-
 def _is_kept(dest: str, file_path: str) -> bool:
-    """Check if a file path should be preserved (not overwritten)."""
     abs_file = os.path.normpath(os.path.abspath(file_path))
-    for k in KEEP_PATHS:
-        kept_path = os.path.normpath(os.path.abspath(os.path.join(dest, k)))
+    for kept in KEEP_PATHS:
+        kept_path = os.path.normpath(os.path.abspath(os.path.join(dest, kept)))
         if abs_file == kept_path or abs_file.startswith(kept_path + os.sep):
             return True
     return False
 
 
 def _backup_kept(dest: str) -> str:
-    """Backup KEEP_PATHS to a temp folder. Returns the backup path."""
     backup = os.path.join(tempfile.gettempdir(), "openblox_backup")
     if os.path.isdir(backup):
         shutil.rmtree(backup)
-    for k in KEEP_PATHS:
-        src = os.path.join(dest, k)
-        if os.path.exists(src):
-            dst = os.path.join(backup, k)
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            if os.path.isfile(src):
-                shutil.copy2(src, dst)
-            else:
-                shutil.copytree(src, dst)
+    for kept in KEEP_PATHS:
+        src = os.path.join(dest, kept)
+        if not os.path.exists(src):
+            continue
+        dst = os.path.join(backup, kept)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        if os.path.isfile(src):
+            shutil.copy2(src, dst)
+        else:
+            shutil.copytree(src, dst)
     return backup
 
 
 def _restore_kept(dest: str, backup: str):
-    """Restore KEEP_PATHS from backup, overwriting whatever is in dest."""
     if not os.path.isdir(backup):
         return
-    for k in KEEP_PATHS:
-        src = os.path.join(backup, k)
+    for kept in KEEP_PATHS:
+        src = os.path.join(backup, kept)
         if not os.path.exists(src):
             continue
-        dst = os.path.join(dest, k)
+        dst = os.path.join(dest, kept)
         if os.path.isfile(src):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             shutil.copy2(src, dst)
@@ -82,16 +76,16 @@ def get_remote_version() -> str:
 
 
 def get_local_version(install_dir: str) -> str:
-    vp = os.path.join(install_dir, "version")
-    if os.path.isfile(vp):
-        with open(vp, "r") as f:
-            return f.read().strip()
-    return "—"
+    version_path = os.path.join(install_dir, "version")
+    if os.path.isfile(version_path):
+        with open(version_path, "r", encoding="utf-8") as handle:
+            return handle.read().strip()
+    return "-"
 
 
 def has_git() -> bool:
     try:
-        subprocess.run(["git", "--version"], capture_output=True, timeout=5)
+        subprocess.run(["git", "--version"], capture_output=True, timeout=5, check=False)
         return True
     except Exception:
         return False
@@ -99,8 +93,8 @@ def has_git() -> bool:
 
 def run_git(cmd: list[str], cwd: str) -> tuple[bool, str]:
     try:
-        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=120)
-        return r.returncode == 0, (r.stdout.strip() or r.stderr.strip())
+        result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=120, check=False)
+        return result.returncode == 0, (result.stdout.strip() or result.stderr.strip() or "Done.")
     except subprocess.TimeoutExpired:
         return False, "Timed out"
     except FileNotFoundError:
@@ -109,7 +103,7 @@ def run_git(cmd: list[str], cwd: str) -> tuple[bool, str]:
         return False, str(e)
 
 
-def install_from_zip(install_dir: str, log_fn):
+def install_from_zip(install_dir: str, log_fn) -> tuple[bool, str]:
     log_fn("Downloading repository...")
     tmp = tempfile.gettempdir()
     zip_path = os.path.join(tmp, "openblox.zip")
@@ -117,8 +111,8 @@ def install_from_zip(install_dir: str, log_fn):
 
     try:
         resp = urlopen(ZIP_URL, timeout=30)
-        with open(zip_path, "wb") as f:
-            f.write(resp.read())
+        with open(zip_path, "wb") as handle:
+            handle.write(resp.read())
     except Exception as e:
         return False, f"Download failed: {e}"
 
@@ -141,16 +135,15 @@ def install_from_zip(install_dir: str, log_fn):
 
     log_fn("Copying files...")
     count = 0
-    for root, dirs, files in os.walk(source):
+    for root, _, files in os.walk(source):
         rel = os.path.relpath(root, source)
-        if rel == ".":
-            rel = ""
-        for f in files:
-            dst_file = os.path.normpath(os.path.join(install_dir, rel, f))
+        rel = "" if rel == "." else rel
+        for name in files:
+            dst_file = os.path.normpath(os.path.join(install_dir, rel, name))
             if _is_kept(install_dir, dst_file):
                 continue
             os.makedirs(os.path.dirname(dst_file), exist_ok=True)
-            src_file = os.path.join(root, f)
+            src_file = os.path.join(root, name)
             try:
                 shutil.copy2(src_file, dst_file)
                 count += 1
@@ -162,6 +155,48 @@ def install_from_zip(install_dir: str, log_fn):
     return True, f"{count} files updated."
 
 
+def install_with_git(path: str, log_fn) -> tuple[bool, str]:
+    is_update = os.path.isdir(os.path.join(path, ".git"))
+    if not is_update:
+        log_fn("Cloning repository...")
+        ok, out = run_git(["git", "clone", REPO_URL, path], os.path.dirname(path) or ".")
+        return (ok, out) if ok else (False, f"Clone failed:\n{out}")
+
+    log_fn("Backing up config, chats, assets...")
+    backup = _backup_kept(path)
+
+    log_fn("Pulling latest changes...")
+    ok, out = run_git(["git", "pull", "origin", "main"], path)
+    if not ok:
+        _restore_kept(path, backup)
+        return False, f"Git pull failed:\n{out}"
+
+    log_fn("Restoring config, chats, assets...")
+    _restore_kept(path, backup)
+    return True, "Update complete."
+
+
+def install_or_update(path: str, log_fn) -> tuple[bool, str]:
+    if not os.path.isdir(path):
+        os.makedirs(path, exist_ok=True)
+    if has_git():
+        log_fn("Git found. Using git method.")
+        return install_with_git(path, log_fn)
+    log_fn("Git not found. Downloading ZIP...")
+    return install_from_zip(path, log_fn)
+
+
+def launch_run_py_visible(path: str):
+    run_path = os.path.join(path, "run.py")
+    if not os.path.isfile(run_path):
+        raise FileNotFoundError(f"run.py not found in {path}")
+    subprocess.Popen(
+        [sys.executable, run_path],
+        cwd=path,
+        creationflags=subprocess.CREATE_NEW_CONSOLE,
+    )
+
+
 class InstallerApp:
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -169,8 +204,8 @@ class InstallerApp:
         root.geometry("520x360")
         root.minsize(480, 320)
         root.configure(bg="#0f1622")
-        self._style()
         self.install_dir = tk.StringVar()
+        self._style()
         self._build_ui()
         self._detect_existing()
 
@@ -206,9 +241,9 @@ class InstallerApp:
         ttk.Button(row, text="Browse", command=self._browse).pack(side=tk.RIGHT, padx=(6, 0))
         self.info_frame = ttk.LabelFrame(main, text="Status", padding=8)
         self.info_frame.pack(fill=tk.X, pady=10)
-        self.local_label = ttk.Label(self.info_frame, text="Local: —", font=("Segoe UI", 9))
+        self.local_label = ttk.Label(self.info_frame, text="Local: -", font=("Segoe UI", 9))
         self.local_label.pack(anchor=tk.W)
-        self.remote_label = ttk.Label(self.info_frame, text="Remote: —", font=("Segoe UI", 9))
+        self.remote_label = ttk.Label(self.info_frame, text="Remote: -", font=("Segoe UI", 9))
         self.remote_label.pack(anchor=tk.W)
         self.action_label = ttk.Label(self.info_frame, text="", font=("Segoe UI", 9, "bold"))
         self.action_label.pack(anchor=tk.W, pady=(4, 0))
@@ -233,26 +268,26 @@ class InstallerApp:
         self.root.update_idletasks()
 
     def _browse(self):
-        d = filedialog.askdirectory(title="Select install folder")
-        if d:
-            self.install_dir.set(d)
+        selected = filedialog.askdirectory(title="Select install folder")
+        if selected:
+            self.install_dir.set(selected)
             self._detect_existing()
 
     def _detect_existing(self):
         path = self.install_dir.get()
         if not path or not os.path.isdir(path):
-            self.local_label.config(text="Local: —")
-            self.remote_label.config(text="Remote: —")
+            self.local_label.config(text="Local: -")
+            self.remote_label.config(text="Remote: -")
             self.action_label.config(text="")
             return
         local = get_local_version(path)
         remote = get_remote_version()
-        self.local_label.config(text=f"Local: v{local}" if local != "—" else "Local: (not installed)")
+        self.local_label.config(text=f"Local: v{local}" if local != "-" else "Local: (not installed)")
         self.remote_label.config(text=f"Remote: v{remote}")
-        if local == "—":
+        if local == "-":
             self.action_label.config(text="New installation", foreground="#58a6ff")
         elif local != remote and remote != "?":
-            self.action_label.config(text=f"Update available: v{local} → v{remote}", foreground="#facc15")
+            self.action_label.config(text=f"Update available: v{local} -> v{remote}", foreground="#facc15")
         else:
             self.action_label.config(text="Up to date", foreground="#3fb950")
 
@@ -261,12 +296,11 @@ class InstallerApp:
         if not path:
             messagebox.showerror("Error", "Select an install path first.")
             return
-        if not os.path.isdir(path):
-            try:
-                os.makedirs(path, exist_ok=True)
-            except Exception as e:
-                messagebox.showerror("Error", f"Cannot create folder:\n{e}")
-                return
+        try:
+            os.makedirs(path, exist_ok=True)
+        except Exception as e:
+            messagebox.showerror("Error", f"Cannot create folder:\n{e}")
+            return
         self.install_btn.config(state=tk.DISABLED)
         self.progress.start()
         self.log_text.config(state=tk.NORMAL)
@@ -275,37 +309,11 @@ class InstallerApp:
         threading.Thread(target=self._install_thread, args=(path,), daemon=True).start()
 
     def _install_thread(self, path: str):
-        ok, msg = False, ""
         try:
-            if has_git():
-                self._log("Git found. Using git method.")
-                ok, msg = self._install_git(path)
-            else:
-                self._log("Git not found. Downloading ZIP...")
-                ok, msg = install_from_zip(path, self._log)
+            ok, msg = install_or_update(path, self._log)
         except Exception as e:
             ok, msg = False, str(e)
         self.root.after(0, self._install_done, ok, msg)
-
-    def _install_git(self, path: str) -> tuple[bool, str]:
-        is_update = os.path.isdir(os.path.join(path, ".git"))
-        if not is_update:
-            self._log("Cloning repository...")
-            ok, out = run_git(["git", "clone", REPO_URL, path], os.path.dirname(path) or ".")
-            return (ok, out) if ok else (False, f"Clone failed:\n{out}")
-
-        self._log("Backing up config, chats, assets...")
-        backup = _backup_kept(path)
-
-        self._log("Pulling latest changes...")
-        ok, out = run_git(["git", "pull", "origin", "main"], path)
-        if not ok:
-            _restore_kept(path, backup)
-            return False, f"Git pull failed:\n{out}"
-
-        self._log("Restoring config, chats, assets...")
-        _restore_kept(path, backup)
-        return True, "Update complete."
 
     def _install_done(self, ok: bool, msg: str):
         self.progress.stop()
@@ -318,9 +326,43 @@ class InstallerApp:
         self._detect_existing()
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Install or update OpenBlox.")
+    parser.add_argument("--terminal", action="store_true",
+                        help="Run the installer in the terminal instead of the GUI.")
+    parser.add_argument("--path", default=os.path.dirname(os.path.abspath(__file__)),
+                        help="Target install directory.")
+    parser.add_argument("--launch", action="store_true",
+                        help="After updating, start run.py in a visible terminal window.")
+    return parser.parse_args()
+
+
+def run_terminal_mode(path: str, launch: bool) -> int:
+    print(f"OpenBlox installer (terminal mode)")
+    print(f"Target: {path}")
+    ok, msg = install_or_update(path, print)
+    print(msg)
+    if not ok:
+        return 1
+    if launch:
+        print("Launching run.py in a visible terminal...")
+        try:
+            launch_run_py_visible(path)
+        except Exception as e:
+            print(f"Launch failed: {e}")
+            return 1
+    return 0
+
+
 def main():
+    args = parse_args()
+    if args.terminal:
+        raise SystemExit(run_terminal_mode(os.path.abspath(args.path), args.launch))
+
     root = tk.Tk()
     app = InstallerApp(root)
+    app.install_dir.set(os.path.abspath(args.path))
+    app._detect_existing()
     root.mainloop()
 
 

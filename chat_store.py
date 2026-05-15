@@ -4,7 +4,16 @@ import time
 import uuid
 from typing import Optional
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "chats")
+
+def _appdata_root() -> str:
+    base = os.getenv("APPDATA") or os.getenv("LOCALAPPDATA") or os.path.dirname(__file__)
+    path = os.path.join(base, "OpenBlox")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+DATA_DIR = os.path.join(_appdata_root(), "chats")
+LEGACY_DATA_DIR = os.path.join(os.path.dirname(__file__), "chats")
 
 
 class ChatMessage:
@@ -92,6 +101,7 @@ class ChatStore:
         os.makedirs(DATA_DIR, exist_ok=True)
         self.sessions: list[ChatSession] = []
         self.active_id: Optional[str] = None
+        self._migrate_legacy_data()
         self._load_all()
 
     def _path(self, sid: str) -> str:
@@ -112,6 +122,24 @@ class ChatStore:
         self.sessions.sort(key=lambda s: s.updated, reverse=True)
         if not self.sessions:
             self.new_session()
+
+    def _migrate_legacy_data(self):
+        if not os.path.isdir(LEGACY_DATA_DIR) or os.path.abspath(LEGACY_DATA_DIR) == os.path.abspath(DATA_DIR):
+            return
+        os.makedirs(DATA_DIR, exist_ok=True)
+        for fname in os.listdir(LEGACY_DATA_DIR):
+            if not fname.endswith(".json"):
+                continue
+            src = os.path.join(LEGACY_DATA_DIR, fname)
+            dst = os.path.join(DATA_DIR, fname)
+            if not os.path.exists(dst):
+                try:
+                    with open(src, "r", encoding="utf-8") as f:
+                        payload = json.load(f)
+                    with open(dst, "w", encoding="utf-8") as f:
+                        json.dump(payload, f, indent=2)
+                except (OSError, json.JSONDecodeError):
+                    pass
 
     def new_session(self) -> ChatSession:
         session = ChatSession()

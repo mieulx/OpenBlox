@@ -4,7 +4,15 @@ from dataclasses import dataclass, field, asdict
 from typing import List, Optional
 
 
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
+def _appdata_root() -> str:
+    base = os.getenv("APPDATA") or os.getenv("LOCALAPPDATA") or os.path.dirname(__file__)
+    path = os.path.join(base, "OpenBlox")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+CONFIG_PATH = os.path.join(_appdata_root(), "config.json")
+LEGACY_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 
 
 @dataclass
@@ -31,6 +39,7 @@ class WebsiteManager:
             "max_chunks": 8,
             "chunk_size": 1500,
         }
+        self._migrate_legacy_config()
         self.load()
 
     def load(self):
@@ -47,6 +56,20 @@ class WebsiteManager:
         except (json.JSONDecodeError, KeyError):
             self._set_defaults()
             self.save()
+
+    def _migrate_legacy_config(self):
+        if os.path.abspath(self.config_path) == os.path.abspath(LEGACY_CONFIG_PATH):
+            return
+        if os.path.exists(self.config_path) or not os.path.exists(LEGACY_CONFIG_PATH):
+            return
+        try:
+            with open(LEGACY_CONFIG_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+        except (OSError, json.JSONDecodeError):
+            pass
 
     def _set_defaults(self):
         self.websites = [
