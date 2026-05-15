@@ -30,6 +30,8 @@ ROBLOX_SYSTEM = (
     "- Always prefer multiple short responses over one long one.\n"
     "- If you hit the limit, stop cleanly and say 'Continuing in next response'.\n"
     "\n"
+    "COMMENTS: Only add comments to code when something is genuinely non-obvious. Do NOT comment every line. No -- explanation of what the next line does. Comments should be rare and only for tricky logic.\n"
+    "\n"
     "FORMATTING - CRITICAL: You MUST use proper formatting ALWAYS.\n"
     "  - Code blocks: ALWAYS wrap ALL scripts and code in ```lua ... ```\n"
     "  - NEVER output code without ``` formatting. Every script must be in a code block.\n"
