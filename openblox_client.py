@@ -9,9 +9,13 @@ ENDPOINT = f"{GATEWAY_URL}/chat/completions"
 MODELS_ENDPOINT = f"{GATEWAY_URL}/models"
 DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
 ADVANCED_REVIEW_PROMPT = (
-    "Internal review step: improve the assistant's most recent draft. "
-    "Fix mistakes, remove repetition, keep the same user intent, and return one final answer only. "
-    "Do not greet again. Do not restart the conversation. Do not mention this review step."
+    "You are an expert code reviewer. Review the assistant's last response and output an IMPROVED version. "
+    "Rules:\n"
+    "- Fix any bugs, edge cases, or missing error handling\n"
+    "- If there's a checklist/plan, verify each step is addressed\n"
+    "- Remove any repetition or unnecessary commentary\n"
+    "- Keep the same intent but make it more complete\n"
+    "- Output ONLY the improved response, no review notes, no commentary"
 )
 
 ROBLOX_SYSTEM = (
@@ -134,16 +138,21 @@ class OpenBloxClient:
         if not text:
             return False
         normalized = " ".join(text.lower().split())
-        generic_prefixes = [
-            "hello! i'm your roblox studio expert assistant.",
-            "hello! i’m your roblox studio expert assistant.",
-            "hello! i'm here to help with roblox studio",
-            "hello! i’m here to help with roblox studio",
-            "what would you like to work on in roblox studio today?",
-        ]
-        if any(normalized.startswith(prefix) for prefix in generic_prefixes):
+        # Skip very short responses
+        if len(normalized) < 80:
             return False
-        if len(normalized) < 100 and "roblox studio" in normalized:
+        # Skip pure greetings
+        greetings = [
+            "hello! i'm your roblox studio expert assistant.",
+            "hello! i'm here to help with roblox studio",
+            "what would you like to work on in roblox studio today?",
+            "pong", "hi there", "hello",
+        ]
+        for g in greetings:
+            if normalized.startswith(g) or normalized.strip() == g:
+                return False
+        # Skip if it looks like the review already ran
+        if "i reviewed" in normalized or "review the assistant" in normalized:
             return False
         return True
 
@@ -164,6 +173,8 @@ class OpenBloxClient:
         return texts[0][:200] if texts else ""
 
     def _request_review(self, full: list, payload: dict, content: str, tools: list | None):
+        # Save original content to compare after review
+        self._pre_review_content = content
         full.append({"role": "assistant", "content": content})
         full.append({"role": "system", "content": ADVANCED_REVIEW_PROMPT})
         payload["messages"] = full
@@ -199,7 +210,11 @@ class OpenBloxClient:
                 new_content = ""
 
             if new_content:
-                content = new_content if reviewed else (f"{content}\n\n{new_content}" if content else new_content)
+                if reviewed:
+                    original = getattr(self, '_pre_review_content', '') or content
+                    content = new_content if len(new_content) > len(original) * 0.7 else original
+                else:
+                    content = f"{content}\n\n{new_content}" if content else new_content
 
             tool_calls = msg.get("tool_calls")
             if not tool_calls or not tool_handler:
@@ -302,7 +317,11 @@ class OpenBloxClient:
                 new_content = ""
 
             if new_content:
-                content = new_content if reviewed else (f"{content}\n\n{new_content}" if content else new_content)
+                if reviewed:
+                    original = getattr(self, '_pre_review_content', '') or content
+                    content = new_content if len(new_content) > len(original) * 0.7 else original
+                else:
+                    content = f"{content}\n\n{new_content}" if content else new_content
                 yield {"type": "thinking", "content": new_content}
 
             tool_calls = msg.get("tool_calls")
