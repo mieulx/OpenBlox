@@ -92,6 +92,7 @@ async function init() {
       const sess = await api('/api/sessions/' + curId).catch(() => null);
       if (sess && sess.messages && sess.messages.length) {
         document.getElementById('messages').innerHTML = sess.messages.map((msg, i) => renderMsg(msg.role, msg.content, i, msg.timestamp)).join('');
+        updateChecklist(sess.messages);
       } else {
         showWelcome();
       }
@@ -193,6 +194,7 @@ async function loadSession(id) {
     const d = await api('/api/sessions/' + id);
     m.innerHTML = d.messages.map((msg, i) => renderMsg(msg.role, msg.content, i, msg.timestamp)).join('');
     collapseLongMessages();
+    updateChecklist(d.messages || []);
     // Restore per-chat model
     if (d.model) {
       $('#model-picker').value = d.model;
@@ -214,6 +216,7 @@ async function newChat() {
       method: 'PATCH', body: JSON.stringify({ title: model }),
     }).catch(() => {});
   }
+  document.getElementById('cl-panel').classList.add('hidden');
   cancelEdit();
   showWelcome();
   refreshSessions();
@@ -323,6 +326,88 @@ function cancelEdit() {
   document.getElementById('input-bar').classList.remove('editing');
 }
 
+// ─── Checklist Panel ───
+function updateChecklist(messages) {
+  const panel = document.getElementById('cl-panel');
+  const items = document.getElementById('cl-items');
+  const count = document.querySelector('.cl-count');
+  if (!panel || !items) return;
+
+  // Scan all assistant messages for numbered plans + [DONE] markers
+  const steps = [];
+  const seen = new Set();
+  for (const msg of messages) {
+    if (msg.role !== 'assistant') continue;
+    const re = /(?:^|\n)\s*(?:\[DONE\]\s*)?(\d+)[\.\)]\s+(.+?)(?=\n\s*(?:\[DONE\]\s*)?\d+[\.\)]|\n\n|$)/g;
+    let m;
+    while ((m = re.exec(msg.content)) !== null) {
+      const num = parseInt(m[1]);
+      const text = m[2].trim();
+      const before = msg.content.slice(0, m.index);
+      const done = /\[DONE\]/.test(before.slice(-300));
+      const key = num + '|' + text;
+      if (!seen.has(key)) {
+        seen.add(key);
+        steps.push({ num, text, done });
+      } else if (done) {
+        // Mark existing step as done
+        const existing = steps.find(s => s.num === num && s.text === text);
+        if (existing) existing.done = true;
+      }
+    }
+  }
+
+  if (steps.length < 2) { panel.classList.add('hidden'); return; }
+
+  items.innerHTML = steps.map(s =>
+    `<div class="cli-item ${s.done ? 'done' : ''}"><span class="cli-dot"></span><span class="cli-text">${esc(s.text)}</span></div>`
+  ).join('');
+  if (count) count.textContent = steps.filter(s => !s.done).length + ' left';
+  panel.classList.remove('hidden');
+}
+
+function toggleClPanel() {
+  document.getElementById('cl-panel').classList.toggle('open');
+}
+
+// ─── Slash Command Preview ───
+const SLASH_COMMANDS = [
+  { name: '/compact', desc: 'Compress the conversation to free up context space when it\'s getting full.' },
+];
+
+function onSlashInput() {
+  const inp = document.getElementById('chat-input');
+  const val = inp.value;
+  const panel = document.getElementById('slash-panel');
+  const cursorPos = inp.selectionStart;
+
+  // Show panel only if at start of line or start of input
+  const lineStart = val.lastIndexOf('\n', cursorPos - 1) + 1;
+  const fromCursor = val.slice(lineStart, cursorPos);
+
+  if (fromCursor === '/' || fromCursor.startsWith('/')) {
+    const query = fromCursor.slice(1).toLowerCase();
+    const matches = SLASH_COMMANDS.filter(c => c.name.slice(1).startsWith(query));
+    if (matches.length) {
+      panel.innerHTML = matches.map(c =>
+        `<div class="slash-item" onclick="insertSlashCommand('${c.name}')"><span class="si-name">${esc(c.name)}</span><span class="si-desc">${esc(c.desc)}</span></div>`
+      ).join('');
+      panel.classList.remove('hidden');
+      return;
+    }
+  }
+  panel.classList.add('hidden');
+}
+
+function insertSlashCommand(cmd) {
+  const inp = document.getElementById('chat-input');
+  inp.value = cmd + ' ';
+  inp.focus();
+  inp.setSelectionRange(inp.value.length, inp.value.length);
+  resizeInput(inp);
+  document.getElementById('slash-panel').classList.add('hidden');
+}
+
 // ─── Chat ───
 let _sendTimer = null;
 
@@ -346,15 +431,43 @@ async function send() {
   // Handle /commands
   if (text.startsWith('/')) {
     if (text === '/compact') {
-      sending = false;
+      inp.value = ''; inp.style.height = 'auto';
+      sending = true;
+      updateSendBtn();
+      const msgs = document.getElementById('messages');
+      const w = msgs.querySelector('.welcome');
+      if (w) msgs.innerHTML = '';
+      msgs.insertAdjacentHTML('beforeend', renderMsg('user', text, -1));
+      const tid = 'compact-' + Date.now();
+      msgs.insertAdjacentHTML('beforeend',
+        `<div id="${tid}" class="think-fold">
+          <div class="tf-head" onclick="toggleThinkFold('${tid}')">
+            <span class="tf-arrow">▶</span>
+            <span class="tf-status" id="tf-status-${tid}">Compacting chat</span>
+            <span class="tf-dots"><span></span><span></span><span></span></span>
+          </div>
+        </div>`
+      );
+      scrollDown();
+      // Three-phase timeout for compact
+      setTimeout(() => {
+        const el = document.getElementById('tf-status-' + tid);
+        if (el) el.textContent = 'Still compacting...';
+      }, 15000);
+      setTimeout(() => {
+        const el = document.getElementById('tf-status-' + tid);
+        if (el) el.textContent = 'Still compacting, really';
+      }, 45000);
       const d = await api('/api/compact', { method: 'POST', body: JSON.stringify({ session_id: curId }) });
+      document.getElementById(tid)?.remove();
       if (d.ok) {
         updateContextBar(d.session || d);
-        toast('Context compacted!', 'ok');
-        await loadSession(curId);
+        msgs.insertAdjacentHTML('beforeend', renderMsg('assistant', '_Context compacted._', -1));
       } else {
-        toast(d.note || 'Failed to compact', 'err');
+        msgs.insertAdjacentHTML('beforeend', renderMsg('assistant', '_Failed to compact: ' + esc(d.note || '') + '_', -1));
       }
+      scrollDown();
+      sending = false;
       updateSendBtn();
       return;
     }
@@ -473,6 +586,7 @@ async function send() {
             const sess = event.session;
             msgs.innerHTML = sess.messages.map((msg, i) => renderMsg(msg.role, msg.content, i, msg.timestamp)).join('');
             collapseLongMessages();
+            updateChecklist(sess.messages || []);
             updateContextBar(sess);
             scrollDown();
             refreshSessions();
