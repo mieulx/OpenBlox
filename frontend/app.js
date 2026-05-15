@@ -856,7 +856,6 @@ function fmt(t) {
   });
   // Escape HTML in non-code text to prevent XSS
   t = t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  t = renderChecklist(t);
   t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
   t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   t = t.replace(/(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)/g, '<em>$1</em>');
@@ -865,6 +864,21 @@ function fmt(t) {
   t = t.replace(/^## (.+)$/gm, '<h2>$1</h2>');
   t = t.replace(/^# (.+)$/gm, '<h1>$1</h1>');
   t = t.replace(/^---+\s*$/gm, '<hr>');
+  // Tables: group consecutive | lines, need header+separator+data
+  t = t.replace(/((?:^\|.+\n?)+)/gm, function(match) {
+    const rows = match.trim().split('\n');
+    if (rows.length < 3) return match;
+    // Check second row is separator (|---| pattern)
+    if (!/^\|[\s:-]+\|/.test(rows[1].trim())) return match;
+    const headers = rows[0].split('|').filter(c => c.trim()).map(c => c.trim());
+    const dataRows = rows.slice(2);
+    let html = '<table><thead><tr>' + headers.map(h => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>';
+    for (const row of dataRows) {
+      const cells = row.split('|').filter(c => c.trim()).map(c => c.trim());
+      if (cells.length) html += '<tr>' + cells.map(c => '<td>' + c + '</td>').join('') + '</tr>';
+    }
+    return html + '</tbody></table>';
+  });
   t = t.replace(/\n/g, '<br>');
   return t;
 }

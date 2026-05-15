@@ -336,6 +336,12 @@ a{color:#58a6ff;text-decoration:none}
 .cli-item .cli-text{transition:all 0.15s}
 .cli-item.done .cli-text{color:var(--text3);text-decoration:line-through}
 
+/* Tables */
+.msg.bot table{border-collapse:collapse;margin:8px 0;font-size:13px;width:100%}
+.msg.bot th,.msg.bot td{border:1px solid var(--border);padding:5px 8px;text-align:left;line-height:1.4}
+.msg.bot th{background:var(--bg3);color:var(--text2);font-weight:500;font-size:12px}
+.msg.bot td{color:var(--text2);background:var(--bg)}
+
 /* Slash command preview */
 #slash-panel{margin:0 20px;max-width:720px;margin-left:auto;margin-right:auto;background:var(--bg2);border:1px solid var(--border);border-bottom:none;border-radius:var(--radius-sm) var(--radius-sm) 0 0}
 #slash-panel.hidden{display:none}
