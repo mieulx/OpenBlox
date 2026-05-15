@@ -854,8 +854,6 @@ function fmt(t) {
     const rawAttr = code.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '&#10;');
     return `<div class="pre-wrap"><pre id="${id}" data-code="${rawAttr}">${highlighted}</pre><button class="copy-btn" onclick="copyCode('${id}', this)">Copy</button></div>`;
   });
-  // Escape HTML in non-code text to prevent XSS
-  t = t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
   t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   t = t.replace(/(?<!\w)\*(?!\s)(.+?)(?<!\s)\*(?!\w)/g, '<em>$1</em>');
