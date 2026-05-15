@@ -357,17 +357,26 @@ function updateChecklist(messages) {
     }
   }
 
-  if (steps.length < 2) { panel.classList.add('hidden'); return; }
+  if (steps.length < 1) { panel.classList.add('hidden'); return; }
 
+  const done = steps.filter(s => s.done).length;
+  const total = steps.length;
   items.innerHTML = steps.map(s =>
-    `<div class="cli-item ${s.done ? 'done' : ''}"><span class="cli-dot"></span><span class="cli-text">${esc(s.text)}</span></div>`
+    `<div class="cli-item ${s.done ? 'done' : ''}"><span class="cli-cb">${s.done ? '✓' : ''}</span><span class="cli-text">${esc(s.text)}</span></div>`
   ).join('');
-  if (count) count.textContent = steps.filter(s => !s.done).length + ' left';
+  if (count) count.innerHTML = done + '/' + total + ' <span>done</span>';
   panel.classList.remove('hidden');
+  // Start collapsed if not all done
+  if (done < total) {
+    panel.classList.add('collapsed');
+  } else {
+    panel.classList.remove('collapsed');
+  }
 }
 
 function toggleClPanel() {
-  document.getElementById('cl-panel').classList.toggle('open');
+  const panel = document.getElementById('cl-panel');
+  panel.classList.toggle('collapsed');
 }
 
 // ─── Slash Command Preview ───
@@ -565,7 +574,13 @@ async function send() {
           const event = JSON.parse(line.slice(6));
           if (event.type === 'thinking') {
             accumulatedContent = event.content;
-            addThinkStep('text', event.content.slice(0, 80));
+            const text = event.content.slice(0, 80);
+            // Detect chain-of-thought steps
+            if (/^(Thinking|Continuing|Reasoning|Next|Step)/i.test(text)) {
+              addThinkStep('tool', '⟫ ' + text);
+            } else {
+              addThinkStep('text', text);
+            }
           } else if (event.type === 'dev') {
             if (event.chunks && event.chunks.length) {
               showDev(event.chunks);

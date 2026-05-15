@@ -66,18 +66,16 @@
 
     <div id="error-bar" class="hidden"></div>
 
-    <div id="cl-panel" class="hidden">
-      <div class="cl-head" onclick="toggleClPanel()">
-        <span class="cl-arrow">▶</span>
-        <span>Plan</span>
-        <span class="cl-count"></span>
-      </div>
-      <div id="cl-body" class="cl-body collapsed"><div id="cl-items"></div></div>
-    </div>
-
     <div id="slash-panel" class="hidden"></div>
 
     <div id="input-bar">
+      <div id="cl-panel" class="hidden">
+        <div class="cl-head" onclick="toggleClPanel()">
+          <span class="cl-count"></span>
+          <span class="cl-arrow">▾</span>
+        </div>
+        <div id="cl-body" class="cl-body"><div id="cl-items"></div></div>
+      </div>
       <div class="input-hint">
         <span>Enter to send &middot; / for commands</span>
         <span class="sep">&#183;</span>

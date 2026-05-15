@@ -271,7 +271,14 @@ BUILTIN_TOOLS = {
     },
     "advanced_thinking": {
         "name": "Advanced Thinking",
-        "description": "After each response, the AI reviews its own work and improves it before continuing.",
+        "description": "Reviews and improves responses before delivering them. Catches bugs and edge cases.",
+        "command": None,
+        "args": None,
+        "enabled": False,
+    },
+    "chain_of_thought": {
+        "name": "Chain of Thought",
+        "description": "Shows the AI's reasoning steps one by one as it works through problems, making its thinking visible.",
         "command": None,
         "args": None,
         "enabled": False,
