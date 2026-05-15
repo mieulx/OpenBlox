@@ -364,6 +364,7 @@ async def chat_stream(req: ChatRequest):
         return tools_mgr.handle_tool_call(name, args, st) if openai_tools else None
     tool_handler = _s_handler if (openai_tools or st.get("context_compactor", True)) else None
     advanced = st.get("advanced_thinking", False)
+    chain = st.get("chain_of_thought", False)
     integration_name = _get_integration_name(st)
 
     dev_chunks = []
@@ -380,7 +381,8 @@ async def chat_stream(req: ChatRequest):
         for event in ai_client.chat_stream(
             history, extra_context=extra,
             tools=openai_tools or None, tool_handler=tool_handler,
-            advanced_thinking=advanced, integration_name=integration_name,
+            advanced_thinking=advanced, chain_of_thought=chain,
+            integration_name=integration_name,
         ):
             if event["type"] == "done":
                 final_content = event["content"]

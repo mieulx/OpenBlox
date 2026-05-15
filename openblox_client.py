@@ -64,10 +64,12 @@ ROBLOX_SYSTEM = (
     "  - You can call the compact_context tool to summarize old messages when needed.\n"
     "  - Keep responses concise to avoid filling the context.\n"
     "\n"
-    "CHAIN OF THOUGHT - When enabled, show your reasoning steps explicitly.\n"
-    "  - Preface each reasoning step with a brief line like \"Thinking: ...\"\n"
-    "  - After completing a step, show \"Continuing: ...\" for the next one\n"
-    "  - This helps the user follow your logic in real-time\n"
+    "CHAIN OF THOUGHT - You have a maximum of 4 reasoning steps.\n"
+    "  - Step 1: \"Thinking: ...\" - analyze the problem\n"
+    "  - Steps 2-3: \"Continuing: ...\" - work through the solution\n"
+    "  - Step 4: \"Final: ...\" - output the answer. This MUST be your last step.\n"
+    "  - Plan ahead: if you can't finish in 4 steps, output a checklist for the next round.\n"
+    "  - On step 4, remind yourself: this is the last step. Wrap up cleanly.\n"
     "\n"
     "CHECKLIST SYSTEM - CRITICAL: You maintain a shared checklist visible as a panel.\n"
     "  - For any multi-step task, ALWAYS first output a numbered plan.\n"
@@ -193,8 +195,11 @@ class OpenBloxClient:
         tools: list,
         tool_handler,
         advanced_thinking: bool = False,
+        chain_of_thought: bool = False,
     ) -> str:
         max_rounds = 15
+        max_chain = 5
+        chain_count = 0
         content = ""
         reviewed = False
 
@@ -215,6 +220,9 @@ class OpenBloxClient:
                 new_content = ""
 
             if new_content:
+                if chain_of_thought and not tool_calls and "Final:" in new_content:
+                    content = f"{content}\n\n{new_content}" if content else new_content
+                    break
                 if reviewed:
                     original = getattr(self, '_pre_review_content', '') or content
                     content = new_content if len(new_content) > len(original) * 0.7 else original
@@ -224,11 +232,17 @@ class OpenBloxClient:
             tool_calls = msg.get("tool_calls")
             if not tool_calls or not tool_handler:
                 if content:
+                    if chain_of_thought:
+                        chain_count += 1
+                        if chain_count >= max_chain:
+                            break
                     if advanced_thinking and not reviewed and self._should_run_advanced_review(content):
                         reviewed = True
                         self._request_review(full, payload, content, tools)
                         continue
-                    break
+                    if not chain_of_thought:
+                        break
+                    continue
                 full.append({"role": "user", "content": "Please provide your response now."})
                 payload["messages"] = full
                 if tools:
@@ -260,6 +274,7 @@ class OpenBloxClient:
         tools: list = None,
         tool_handler=None,
         advanced_thinking: bool = False,
+        chain_of_thought: bool = False,
         integration_name: str = "",
     ) -> Optional[str]:
         if not self.api_key:
@@ -274,7 +289,7 @@ class OpenBloxClient:
         }
         if tools:
             payload["tools"] = tools
-        return self._run_tool_loop(full, payload, tools, tool_handler, advanced_thinking)
+        return self._run_tool_loop(full, payload, tools, tool_handler, advanced_thinking, chain_of_thought)
 
     def chat_stream(
         self,
@@ -284,6 +299,7 @@ class OpenBloxClient:
         tools: list = None,
         tool_handler=None,
         advanced_thinking: bool = False,
+        chain_of_thought: bool = False,
         integration_name: str = "",
     ):
         if not self.api_key:
@@ -302,6 +318,8 @@ class OpenBloxClient:
             payload["tools"] = tools
 
         max_rounds = 15
+        max_chain = 5
+        chain_count = 0
         reviewed = False
         content = ""
 
@@ -332,11 +350,17 @@ class OpenBloxClient:
             tool_calls = msg.get("tool_calls")
             if not tool_calls or not tool_handler:
                 if content:
+                    if chain_of_thought:
+                        chain_count += 1
+                        if chain_count >= max_chain or "Final:" in new_content:
+                            break
                     if advanced_thinking and not reviewed and self._should_run_advanced_review(content):
                         reviewed = True
                         self._request_review(full, payload, content, tools)
                         continue
-                    break
+                    if not chain_of_thought:
+                        break
+                    continue
                 full.append({"role": "user", "content": "Please provide your response now."})
                 payload["messages"] = full
                 if tools:
