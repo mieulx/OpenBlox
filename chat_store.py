@@ -35,6 +35,8 @@ MODEL_CONTEXTS = {
 }
 DEFAULT_CONTEXT = 128000
 
+SYSTEM_PROMPT_TOKENS = 900  # ROBLOX_SYSTEM is ~3400 chars ≈ 850 tokens + overhead
+
 def estimate_tokens(text: str) -> int:
     return len(text) // 4 + 1
 
@@ -57,11 +59,16 @@ class ChatSession:
         self.updated = time.time()
 
     def context_tokens(self) -> int:
-        total = 0
+        total = SYSTEM_PROMPT_TOKENS  # Base system prompt
         for m in self.messages:
             total += estimate_tokens(m.content)
-        # Add ~100 tokens per message for role/format overhead
-        total += len(self.messages) * 100
+            # Role + formatting overhead: user/assistant/system labels, tool calls, etc.
+            if m.role == "assistant":
+                total += 80  # assistant role + potential tool_calls
+            elif m.role == "user":
+                total += 20  # user role label
+            else:
+                total += 40  # tool/system role
         return total
 
     def context_limit(self) -> int:
