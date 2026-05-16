@@ -48,6 +48,9 @@ class ChatSession:
         self.messages: list[ChatMessage] = []
         self.tools: dict[str, bool] = {}
         self.model: str = ""
+        self.agent_plan: list[dict] = []
+        self.agent_logs: list[dict] = []
+        self.permissions_disabled: bool = False
 
     def add_message(self, role: str, content: str):
         self.messages.append(ChatMessage(role, content))
@@ -79,6 +82,9 @@ class ChatSession:
             "messages": [m.to_dict() for m in self.messages],
             "tools": self.tools,
             "model": self.model,
+            "agent_plan": self.agent_plan,
+            "agent_logs": self.agent_logs,
+            "permissions_disabled": self.permissions_disabled,
             "context_pct": self.context_pct(),
             "context_tokens": self.context_tokens(),
             "context_limit": self.context_limit(),
@@ -93,6 +99,9 @@ class ChatSession:
         s.messages = [ChatMessage.from_dict(m) for m in d.get("messages", [])]
         s.tools = d.get("tools", {})
         s.model = d.get("model", "")
+        s.agent_plan = d.get("agent_plan", [])
+        s.agent_logs = d.get("agent_logs", [])
+        s.permissions_disabled = d.get("permissions_disabled", False)
         return s
 
 

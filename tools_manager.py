@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 import threading
 from typing import Optional
@@ -270,7 +271,7 @@ BUILTIN_TOOLS = {
         "enabled": False,
     },
     "advanced_thinking": {
-        "name": "Advanced Thinking",
+        "name": "Advanced Reasoning",
         "description": "After each response, the AI reviews its own work and improves it before continuing.",
         "command": None,
         "args": None,
@@ -327,6 +328,200 @@ class ToolsManager:
             normalized["required"] = []
         return normalized
 
+    def _get_running_mcp_client(self, session_tools: dict) -> tuple[Optional[str], Optional[MCPClient]]:
+        for tid in self.tool_defs:
+            if self.is_enabled(tid, session_tools) and tid in self.mcp_clients:
+                if self._ensure_running(tid):
+                    return tid, self.mcp_clients[tid]
+        return None, None
+
+    def _get_cached_mcp_tools(self, session_tools: dict) -> list[dict]:
+        tools = []
+        for tid in self.tool_defs:
+            if self.is_enabled(tid, session_tools) and tid in self.mcp_clients:
+                if self._ensure_running(tid):
+                    tools.extend(self._mcp_tools_cache.get(tid, []))
+        return tools
+
+    def _find_tool_by_name_patterns(self, session_tools: dict, patterns: list[str]) -> list[dict]:
+        matches = []
+        for tool in self._get_cached_mcp_tools(session_tools):
+            name = (tool.get("name") or "").lower()
+            if all(pattern in name for pattern in patterns):
+                matches.append(tool)
+        return matches
+
+    def _build_call_args(self, schema: dict, seed: dict) -> dict:
+        props = (schema or {}).get("properties", {})
+        if not isinstance(props, dict):
+            return dict(seed)
+        args = {}
+        alias_map = {
+            "query": ["query", "search", "pattern", "text", "needle", "term", "name"],
+            "max_results": ["limit", "max", "count", "maxResults", "numResults"],
+            "context_chars": ["context", "contextChars", "radius", "around"],
+            "script_name": ["script", "scriptName", "name", "path", "instancePath", "fullName"],
+            "source": ["source", "content", "text", "scriptSource"],
+        }
+        for key, value in seed.items():
+            aliases = alias_map.get(key, [key])
+            for alias in aliases:
+                if alias in props:
+                    args[alias] = value
+        return args or dict(seed)
+
+    def _call_named_tool(self, session_tools: dict, tool_name: str, seed: dict) -> Optional[dict]:
+        _, client = self._get_running_mcp_client(session_tools)
+        if not client:
+            return None
+        tool_meta = next((t for t in self._get_cached_mcp_tools(session_tools) if t.get("name") == tool_name), None)
+        call_args = self._build_call_args(tool_meta.get("inputSchema", {}) if tool_meta else {}, seed)
+        return client.call_tool(tool_name, call_args)
+
+    def _extract_text_payload(self, result: Optional[dict]) -> str:
+        if not result or "result" not in result:
+            return ""
+        payload = result["result"]
+        if isinstance(payload, dict):
+            content = payload.get("content", [])
+            if isinstance(content, list):
+                parts = [c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text"]
+                return "\n".join(part for part in parts if part).strip()
+        if isinstance(payload, str):
+            return payload.strip()
+        return ""
+
+    def _extract_json_payload(self, result: Optional[dict]):
+        text = self._extract_text_payload(result)
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+    def _codebase_grep_tool_def(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": "codebase_grep",
+                "description": (
+                    "Search through many Roblox scripts at once. Use this when you need to find code patterns, "
+                    "APIs, variable names, or behavior across the whole game."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "The text or pattern to search for."},
+                        "max_results": {"type": "integer", "description": "Maximum matches to return.", "default": 25},
+                        "context_chars": {"type": "integer", "description": "Snippet size around each match.", "default": 120},
+                    },
+                    "required": ["query"],
+                },
+            },
+        }
+
+    def _fallback_codebase_grep(self, session_tools: dict, query: str, max_results: int, context_chars: int) -> str:
+        list_candidates = [
+            ["list", "script"],
+            ["get", "scripts"],
+            ["find", "script"],
+        ]
+        read_candidates = [
+            ["get", "source"],
+            ["script", "source"],
+            ["read", "script"],
+            ["get", "script"],
+        ]
+        list_tools = []
+        for patterns in list_candidates:
+            list_tools.extend(self._find_tool_by_name_patterns(session_tools, patterns))
+        read_tools = []
+        for patterns in read_candidates:
+            read_tools.extend(self._find_tool_by_name_patterns(session_tools, patterns))
+        if not list_tools or not read_tools:
+            return json.dumps([{
+                "type": "text",
+                "text": "codebase_grep could not find compatible Roblox MCP script listing/reading tools."
+            }])
+
+        listed = self._call_named_tool(session_tools, list_tools[0]["name"], {"limit": max(100, max_results * 4)})
+        scripts = self._extract_json_payload(listed)
+        if not isinstance(scripts, list):
+            raw = self._extract_text_payload(listed)
+            scripts = []
+            for line in raw.splitlines():
+                line = line.strip()
+                if line:
+                    scripts.append({"name": line})
+
+        matches = []
+        pattern = re.compile(re.escape(query), re.IGNORECASE)
+        for script in scripts[:200]:
+            if len(matches) >= max_results:
+                break
+            if not isinstance(script, dict):
+                continue
+            identifier = (
+                script.get("path")
+                or script.get("fullName")
+                or script.get("name")
+                or script.get("script")
+                or script.get("instancePath")
+            )
+            if not identifier:
+                continue
+            source_result = self._call_named_tool(session_tools, read_tools[0]["name"], {"script_name": identifier})
+            source_text = self._extract_text_payload(source_result)
+            if not source_text:
+                parsed = self._extract_json_payload(source_result)
+                if isinstance(parsed, dict):
+                    source_text = (
+                        parsed.get("source")
+                        or parsed.get("content")
+                        or parsed.get("text")
+                        or parsed.get("scriptSource")
+                        or ""
+                    )
+            if not source_text:
+                continue
+            for found in pattern.finditer(source_text):
+                start = max(0, found.start() - context_chars)
+                end = min(len(source_text), found.end() + context_chars)
+                matches.append({
+                    "script": identifier,
+                    "match": found.group(0),
+                    "snippet": source_text[start:end].replace("\r", ""),
+                })
+                if len(matches) >= max_results:
+                    break
+
+        if not matches:
+            return json.dumps([{"type": "text", "text": f"No codebase matches found for '{query}'."}])
+        return json.dumps([{"type": "text", "text": json.dumps(matches, ensure_ascii=False)}])
+
+    def _handle_codebase_grep(self, arguments: dict, session_tools: dict) -> str:
+        query = (arguments or {}).get("query", "").strip()
+        if not query:
+            return json.dumps([{"type": "text", "text": "codebase_grep requires a query."}])
+        max_results = max(1, min(int((arguments or {}).get("max_results", 25) or 25), 100))
+        context_chars = max(20, min(int((arguments or {}).get("context_chars", 120) or 120), 400))
+
+        direct = self._find_tool_by_name_patterns(session_tools, ["grep"])
+        if direct:
+            result = self._call_named_tool(
+                session_tools,
+                direct[0]["name"],
+                {"query": query, "max_results": max_results, "context_chars": context_chars},
+            )
+            if result and "result" in result:
+                payload = result["result"]
+                if isinstance(payload, dict):
+                    return json.dumps(payload.get("content", payload))
+                return json.dumps([{"type": "text", "text": str(payload)}])
+
+        return self._fallback_codebase_grep(session_tools, query, max_results, context_chars)
+
     def get_tools(self, session_tools: dict = None) -> list[dict]:
         if session_tools is None:
             session_tools = {}
@@ -373,6 +568,17 @@ class ToolsManager:
                         lines.append(f"  ({count} tools available)")
         return "Active tools:\n" + "\n".join(lines) if lines else ""
 
+    def get_all_mcp_tool_names(self) -> list[str]:
+        """Returns all MCP tool names from ALL integrations (even disabled ones)."""
+        names = []
+        for tid, client in self.mcp_clients.items():
+            if client.is_running() or client.start()[0]:
+                if tid not in self._mcp_tools_cache or not self._mcp_tools_cache[tid]:
+                    self._mcp_tools_cache[tid] = client.list_tools()
+                for tool in self._mcp_tools_cache.get(tid, []):
+                    names.append(tool.get("name", ""))
+        return [n for n in names if n]
+
     def get_openai_tools(self, session_tools: dict) -> list[dict]:
         all_tools = []
         for tid in self.tool_defs:
@@ -388,6 +594,8 @@ class ToolsManager:
                             "parameters": self._normalize_schema(mt.get("inputSchema", {})),
                         },
                     })
+        if self.is_enabled("roblox_studio_mcp", session_tools):
+            all_tools.append(self._codebase_grep_tool_def())
         if self.is_enabled("context_compactor", session_tools):
             all_tools.append({
                 "type": "function",
@@ -448,6 +656,8 @@ class ToolsManager:
         return text.strip()
 
     def handle_tool_call(self, tool_name: str, arguments: dict, session_tools: dict) -> Optional[str]:
+        if tool_name == "codebase_grep":
+            return self._handle_codebase_grep(arguments, session_tools)
         for tid in self.tool_defs:
             if not self.is_enabled(tid, session_tools) or tid not in self.mcp_clients:
                 continue

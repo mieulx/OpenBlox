@@ -34,6 +34,9 @@ class WebsiteManager:
             "model": "nvidia/nemotron-3-super-120b-a12b:free",
             "temperature": 0.3,
             "user_context": "",
+            "dev_mode": False,
+            "permissions_enabled": True,
+            "allowed_tools": [],
         }
         self.search_config = {
             "max_chunks": 8,

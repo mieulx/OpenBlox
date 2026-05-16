@@ -20,7 +20,7 @@ import zipfile
 REPO_URL = "https://github.com/Artemcik5/OpenBlox.git"
 ZIP_URL = "https://github.com/Artemcik5/OpenBlox/archive/refs/heads/main.zip"
 KEEP_PATHS = {"frontend/assets"}
-VERSION_URL = "https://raw.githubusercontent.com/Artemcik5/OpenBlox/main/version"
+VERSION_URL = "https://raw.githubusercontent.com/Artemcik5/OpenBlox/refs/heads/main/version"
 
 
 def _is_kept(dest: str, file_path: str) -> bool:
@@ -89,6 +89,22 @@ def has_git() -> bool:
         return True
     except Exception:
         return False
+
+
+def should_skip_update(path: str, log_fn) -> bool:
+    local = get_local_version(path)
+    remote = get_remote_version()
+    if local not in {"", "-", "?"} and remote not in {"", "?"} and local == remote:
+        log_fn(f"Version v{local} is already up to date. Skipping update.")
+        return True
+    return False
+
+
+def git_worktree_is_clean(path: str) -> bool:
+    ok, out = run_git(["git", "status", "--porcelain"], path)
+    if not ok:
+        return False
+    return not out.strip()
 
 
 def run_git(cmd: list[str], cwd: str) -> tuple[bool, str]:
@@ -162,14 +178,23 @@ def install_with_git(path: str, log_fn) -> tuple[bool, str]:
         ok, out = run_git(["git", "clone", REPO_URL, path], os.path.dirname(path) or ".")
         return (ok, out) if ok else (False, f"Clone failed:\n{out}")
 
+    if should_skip_update(path, log_fn):
+        return True, "Already on the latest version."
+
     log_fn("Backing up config, chats, assets...")
     backup = _backup_kept(path)
 
-    log_fn("Pulling latest changes...")
-    ok, out = run_git(["git", "pull", "origin", "main"], path)
-    if not ok:
+    if not git_worktree_is_clean(path):
+        log_fn("Git worktree has local changes. Falling back to ZIP update.")
         _restore_kept(path, backup)
-        return False, f"Git pull failed:\n{out}"
+        return install_from_zip(path, log_fn)
+
+    log_fn("Pulling latest changes...")
+    ok, out = run_git(["git", "pull", "--ff-only", "origin", "main"], path)
+    if not ok:
+        log_fn("Git pull failed. Falling back to ZIP update.")
+        _restore_kept(path, backup)
+        return install_from_zip(path, log_fn)
 
     log_fn("Restoring config, chats, assets...")
     _restore_kept(path, backup)
@@ -179,6 +204,8 @@ def install_with_git(path: str, log_fn) -> tuple[bool, str]:
 def install_or_update(path: str, log_fn) -> tuple[bool, str]:
     if not os.path.isdir(path):
         os.makedirs(path, exist_ok=True)
+    elif should_skip_update(path, log_fn):
+        return True, "Already on the latest version."
     if has_git():
         log_fn("Git found. Using git method.")
         return install_with_git(path, log_fn)

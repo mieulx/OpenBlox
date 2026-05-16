@@ -1,6 +1,15 @@
 let curId = null, sending = false, abortController = null;
 let editingIndex = null;
 let _contextPct = 0;
+let _agentMode = false;
+let _agentPanelCollapsed = false;
+let _agentStripCollapsed = false;
+let _agentTrace = [];
+let _agentConfig = { subagent_model: '', max_subagents: 2, chain_thought: false };
+let _devState = { metrics: null };
+let _liveMsgEl = null;
+let _permReqId = null;
+let _permPollTimer = null;
 const TIMEOUT_MS = 120000;
 
 const $ = s => document.querySelector(s);
@@ -79,6 +88,165 @@ function stopThinking() {
   showError('Stopped by user', 'warn');
 }
 
+function toggleAgentMode() {
+  _agentMode = !_agentMode;
+  const btn = document.getElementById('agent-mode-btn');
+  if (btn) btn.classList.toggle('active', _agentMode);
+  const title = document.getElementById('agent-plan-title');
+  if (title && !_agentTrace.length) title.textContent = _agentMode ? 'Agent Run Ready' : 'Execution Plan';
+}
+
+function toggleAgentPanelBody() {
+  _agentPanelCollapsed = !_agentPanelCollapsed;
+  const panel = document.getElementById('agent-sidebar');
+  if (panel) panel.classList.toggle('collapsed', _agentPanelCollapsed);
+}
+
+function resetAgentTrace() {
+  _agentTrace = [];
+  const trace = document.getElementById('agent-trace');
+  if (trace) trace.innerHTML = '';
+  const side = document.getElementById('agent-sidebar');
+  if (side) side.classList.add('hidden');
+}
+
+function prettyMsg(msg) {
+  if (!msg || typeof msg !== 'string') return '';
+  const trimmed = msg.trim();
+  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+    try {
+      const obj = JSON.parse(trimmed);
+      if (typeof obj === 'object' && obj !== null) {
+        return flattenObj(obj);
+      }
+    } catch {}
+  }
+  return msg;
+}
+
+function flattenObj(obj, indent = '') {
+  if (Array.isArray(obj)) {
+    return obj.map((item, i) => {
+      if (typeof item === 'object' && item !== null) {
+        return `${indent}[${i}]\n${flattenObj(item, indent + '  ')}`;
+      }
+      return `${indent}- ${item}`;
+    }).join('\n');
+  }
+  if (typeof obj === 'object' && obj !== null) {
+    return Object.entries(obj).map(([k, v]) => {
+      if (typeof v === 'object' && v !== null) {
+        return `${indent}${k}:\n${flattenObj(v, indent + '  ')}`;
+      }
+      return `${indent}${k}: ${v}`;
+    }).join('\n');
+  }
+  return `${indent}${obj}`;
+}
+
+function addAgentTrace(agent, stage, message) {
+  _agentTrace.push({ agent, stage, message });
+  const trace = document.getElementById('agent-trace');
+  const panel = document.getElementById('agent-sidebar');
+  if (!trace || !panel) return;
+  panel.classList.remove('hidden');
+  trace.innerHTML = _agentTrace.map(item => {
+    const formatted = prettyMsg(item.message || '');
+    return `
+    <div class="agent-trace-item">
+      <div class="agent-trace-head">
+        <span class="agent-trace-agent">${esc(item.agent || 'Agent')}</span>
+        <span class="agent-trace-stage">${esc(item.stage || 'update')}</span>
+      </div>
+      <div class="agent-trace-text">${esc(formatted)}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderAgentPlan(plan) {
+  const panel = document.getElementById('agent-todo-strip');
+  const side = document.getElementById('agent-sidebar');
+  const itemsEl = document.getElementById('agent-plan-items');
+  const progressEl = document.getElementById('agent-plan-progress');
+  const titleEl = document.getElementById('agent-plan-title');
+  if (!panel || !itemsEl || !progressEl || !titleEl) return;
+  const items = Array.isArray(plan) ? plan : [];
+  if (!items.length && !_agentTrace.length) {
+    panel.classList.add('hidden');
+    if (side) side.classList.add('hidden');
+    itemsEl.innerHTML = '';
+    progressEl.textContent = '0 of 0 done';
+    titleEl.textContent = 'Execution Plan';
+    return;
+  }
+  panel.classList.remove('hidden');
+  panel.classList.toggle('expanded', items.length > 6);
+  panel.classList.toggle('collapsed', _agentStripCollapsed);
+  const done = items.filter(item => item.done).length;
+  progressEl.textContent = `${done} of ${items.length} done`;
+  titleEl.textContent = _agentMode ? 'Agent Execution Plan' : 'Execution Plan';
+
+  let html = items.map((item, i) => `
+    <div class="agent-plan-item ${item.done ? 'done' : ''}" onclick="event.stopPropagation();togglePlanItem(${i})" title="${item.done ? 'Mark incomplete' : 'Mark complete'}">
+      <span class="agent-plan-check"></span>
+      <span class="agent-plan-text agent-plan-text-overflow" title="${esc(item.text || '')}">${esc(item.text || '')}</span>
+    </div>
+  `).join('');
+
+  itemsEl.innerHTML = html;
+}
+
+async function togglePlanItem(index) {
+  if (!curId) return;
+  const sess = await api(`/api/sessions/${curId}`).catch(() => null);
+  if (!sess) return;
+  const items = sess.agent_plan || [];
+  if (index < 0 || index >= items.length) return;
+  const done = !items[index].done;
+  const res = await api(`/api/sessions/${curId}/plan`, {
+    method: 'PATCH',
+    body: JSON.stringify({ index, done }),
+  }).catch(() => null);
+  if (res && res.agent_plan) {
+    renderAgentPlan(res.agent_plan);
+  }
+}
+
+function toggleAgentStrip() {
+  _agentStripCollapsed = !_agentStripCollapsed;
+  const panel = document.getElementById('agent-todo-strip');
+  if (panel) panel.classList.toggle('collapsed', _agentStripCollapsed);
+}
+
+function updateDevPanel() {
+  const panel = document.getElementById('dev-panel');
+  const content = document.getElementById('dev-content');
+  if (!panel || !content) return;
+  const hasMetrics = !!_devState.metrics;
+  if (!hasMetrics) {
+    panel.classList.add('hidden');
+    content.innerHTML = '';
+    return;
+  }
+  panel.classList.remove('hidden');
+  const m = _devState.metrics;
+  const cards = [
+    ['Model', m.model || '-'],
+    ['TTFT', m.ttft_ms ? `${m.ttft_ms} ms` : '-'],
+    ['Total', m.total_ms ? `${m.total_ms} ms` : '-'],
+    ['TPS', m.tps_est ? `${m.tps_est}` : '0'],
+    ['Tokens', m.output_tokens_est || 0],
+    ['Rounds', m.rounds || 0],
+    ['Tools', m.tool_calls || 0],
+  ];
+  content.innerHTML = `<div class="dev-metrics">${cards.map(([label, value]) => `
+    <div class="dev-metric">
+      <div class="dev-metric-label">${esc(String(label))}</div>
+      <div class="dev-metric-value">${esc(String(value))}</div>
+    </div>
+  `).join('')}</div>`;
+}
+
 // ─── Init ───
 async function init() {
   try {
@@ -92,11 +260,27 @@ async function init() {
       const sess = await api('/api/sessions/' + curId).catch(() => null);
       if (sess && sess.messages && sess.messages.length) {
         document.getElementById('messages').innerHTML = sess.messages.map((msg, i) => renderMsg(msg.role, msg.content, i, msg.timestamp)).join('');
+        // Restore agent logs on page load
+        if (sess.agent_logs && sess.agent_logs.length) {
+          _agentTrace = sess.agent_logs;
+          const trace = document.getElementById('agent-trace');
+          const panel = document.getElementById('agent-sidebar');
+          if (trace && panel) {
+            panel.classList.remove('hidden');
+            trace.innerHTML = _agentTrace.map(item => {
+              const formatted = prettyMsg(item.message || '');
+              return `<div class="agent-trace-item"><div class="agent-trace-head"><span class="agent-trace-agent">${esc(item.agent || 'Agent')}</span><span class="agent-trace-stage">${esc(item.stage || 'update')}</span></div><div class="agent-trace-text">${esc(formatted)}</div></div>`;
+            }).join('');
+          }
+        }
+        renderAgentPlan(sess.agent_plan || []);
       } else {
         showWelcome();
+        renderAgentPlan([]);
       }
     } else {
       showWelcome();
+      renderAgentPlan([]);
     }
     populateModels(md.models || [], md.free_models || []);
     const cfg = await api('/api/config').catch(() => ({}));
@@ -105,6 +289,11 @@ async function init() {
       $('#s-model').value = cfg.model;
     }
     if (cfg.user_context) $('#s-context').value = cfg.user_context;
+    if (cfg.dev_mode !== undefined) {
+      const dEl = document.getElementById('s-dev-mode');
+      if (dEl) dEl.checked = cfg.dev_mode;
+      toggleDev();
+    }
     const ver = await api('/api/version').catch(() => ({ version: '' }));
     const vEl = document.getElementById('version-display');
     if (vEl && ver.version) vEl.textContent = 'v' + ver.version;
@@ -115,17 +304,26 @@ document.addEventListener('DOMContentLoaded', init);
 function populateModels(all) {
   const picker = $('#model-picker');
   const sModel = $('#s-model');
-  const dev = document.getElementById('dev-mode').checked;
+  const subModel = $('#s-subagent-model');
+  const dev = (document.getElementById('s-dev-mode') || {}).checked || false;
   _ALL_MODELS.length = 0;
   _ALL_MODELS.push(...all);
   picker.innerHTML = '';
   sModel.innerHTML = '';
+  if (subModel && !subModel.options.length) {
+    subModel.innerHTML = '<option value="">Same as main</option>';
+  }
   for (const m of all) {
     const label = dev && m.id ? m.tier + ' \u2014 ' + m.id : m.tier;
     const o1 = document.createElement('option');
     o1.value = m.id; o1.textContent = label;
     picker.appendChild(o1);
     sModel.appendChild(o1.cloneNode(true));
+    if (subModel) {
+      const o2 = document.createElement('option');
+      o2.value = m.id; o2.textContent = m.tier + ' \u2014 ' + m.id;
+      subModel.appendChild(o2);
+    }
   }
 }
 
@@ -200,6 +398,32 @@ async function loadSession(id) {
     }
     // Update context display
     updateContextBar(d);
+    // Reset all agent state before restoring
+    resetAgentTrace();
+    _agentTrace = [];
+    // Restore persisted agent logs
+    if (d.agent_logs && d.agent_logs.length) {
+      _agentTrace = d.agent_logs;
+      const trace = document.getElementById('agent-trace');
+      const panel = document.getElementById('agent-sidebar');
+      if (trace && panel) {
+        panel.classList.remove('hidden');
+        trace.innerHTML = _agentTrace.map(item => {
+          const formatted = prettyMsg(item.message || '');
+          return `
+          <div class="agent-trace-item">
+            <div class="agent-trace-head">
+              <span class="agent-trace-agent">${esc(item.agent || 'Agent')}</span>
+              <span class="agent-trace-stage">${esc(item.stage || 'update')}</span>
+            </div>
+            <div class="agent-trace-text">${esc(formatted)}</div>
+          </div>`;
+        }).join('');
+      }
+    }
+    renderAgentPlan(d.agent_plan || []);
+    _devState = { metrics: null };
+    updateDevPanel();
     scrollDown();
   } catch { showWelcome(); }
 }
@@ -215,6 +439,8 @@ async function newChat() {
     }).catch(() => {});
   }
   cancelEdit();
+  resetAgentTrace();
+  renderAgentPlan([]);
   showWelcome();
   refreshSessions();
 }
@@ -226,6 +452,8 @@ async function delSession(id) {
   const d = await api('/api/sessions');
   curId = d.active_id;
   cancelEdit();
+  resetAgentTrace();
+  renderAgentPlan([]);
   renderSessions(d.sessions);
   loadSession(curId);
 }
@@ -373,6 +601,13 @@ async function send() {
   inp.value = ''; inp.style.height = 'auto';
   sending = true;
   abortController = new AbortController();
+  if (_agentMode) {
+    resetAgentTrace();
+    renderAgentPlan([]);
+    addAgentTrace('Planner', 'queued', 'Preparing agent plan.');
+  }
+  _devState = { metrics: null };
+  updateDevPanel();
   clearError();
   document.getElementById('input-bar').classList.remove('editing');
   updateSendBtn();
@@ -389,8 +624,16 @@ async function send() {
   editingIndex = null;
 
   _thinkingTid = 'think-' + Date.now();
-  msgs.insertAdjacentHTML('beforeend',
-    `<div id="${_thinkingTid}" class="think-fold">
+  const liveMsgId = 'live-' + Date.now();
+  const msgGroup = document.createElement('div');
+  msgGroup.className = 'msg-group';
+  msgGroup.id = liveMsgId;
+  msgGroup.innerHTML = `
+    <div class="msg-label">Assistant <span class="msg-time">now</span></div>
+    <div class="msg bot" id="${liveMsgId}-body">
+      <span class="stream-cursor" id="${liveMsgId}-cursor"></span>
+    </div>
+    <div id="${_thinkingTid}" class="think-fold">
       <div class="tf-head" onclick="toggleThinkFold('${_thinkingTid}')">
         <span class="tf-arrow">▶</span>
         <span class="tf-status" id="tf-status-${_thinkingTid}">Thinking</span>
@@ -399,13 +642,15 @@ async function send() {
       <div class="tf-body" id="tf-body-${_thinkingTid}">
         <div class="tf-steps" id="tf-steps-${_thinkingTid}"></div>
       </div>
-    </div>`
-  );
+    </div>
+  `;
+  msgs.appendChild(msgGroup);
+  _liveMsgEl = msgGroup;
   scrollDown();
   document.getElementById('send-btn').disabled = false;
   updateSendBtn();
 
-  const dev = document.getElementById('dev-mode').checked;
+  const dev = (document.getElementById('s-dev-mode') || {}).checked || false;
   let timedOut = false;
   _sendTimer = setTimeout(() => {
     timedOut = true;
@@ -425,7 +670,7 @@ async function send() {
   let accumulatedContent = '';
 
   try {
-    const body = { message: text, session_id: curId, dev_mode: dev };
+    const body = { message: text, session_id: curId, dev_mode: dev, agent_mode: _agentMode, subagent_model: _agentConfig.subagent_model, max_subagents: _agentConfig.max_subagents, chain_thought: _agentConfig.chain_thought };
     if (editIdx !== null) body.edit_index = editIdx;
 
     const resp = await fetch('/api/chat/stream', {
@@ -438,6 +683,7 @@ async function send() {
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
+    startPermPoll();
 
     while (true) {
       const { done, value } = await reader.read();
@@ -451,29 +697,79 @@ async function send() {
         try {
           const event = JSON.parse(line.slice(6));
           if (event.type === 'thinking') {
-            accumulatedContent = event.content;
-            addThinkStep('text', event.content.slice(0, 80));
-          } else if (event.type === 'dev') {
-            if (event.chunks && event.chunks.length) {
-              showDev(event.chunks);
-            } else {
-              hideDev();
+            if (accumulatedContent) accumulatedContent += '\n\n';
+            accumulatedContent += event.content;
+            const bodyEl = document.getElementById(liveMsgId + '-body');
+            if (bodyEl) {
+              bodyEl.innerHTML = fmt(accumulatedContent) + '<span class="stream-cursor"></span>';
+              scrollDown();
             }
+            addThinkStep('text', event.content.slice(0, 80));
           } else if (event.type === 'tool') {
             addThinkStep('tool', event.tool + ' through ' + event.integration);
+            if (_agentMode) addAgentTrace(event.integration || 'Tool', 'tool', event.tool);
+          } else if (event.type === 'tool_declined') {
+            addThinkStep('output', '✗ ' + (event.tool || 'Tool') + ' declined');
+            if (_agentMode) addAgentTrace('Tool', 'declined', event.tool);
           } else if (event.type === 'tool_output') {
             const out = event.output;
             if (out) addThinkStep('output', out.slice(0, 120));
+            if (_agentMode && out) addAgentTrace('Tool Output', 'result', out.slice(0, 240));
+          } else if (event.type === 'metric') {
+            if (dev) {
+              _devState.metrics = { ...(_devState.metrics || {}), ...event.metric };
+              updateDevPanel();
+            }
+          } else if (event.type === 'metrics') {
+            if (dev) {
+              _devState.metrics = event.metrics || null;
+              updateDevPanel();
+            }
+          } else if (event.type === 'agent_plan') {
+            renderAgentPlan(event.session_plan || []);
+            addAgentTrace('Planner', 'plan', event.plan?.summary || 'Plan ready.');
+          } else if (event.type === 'agent_plan_update') {
+            renderAgentPlan(event.session_plan || []);
+          } else if (event.type === 'agent_working') {
+            const workEl = document.getElementById('agent-working');
+            if (workEl) workEl.classList.remove('hidden');
+          } else if (event.type === 'agent_status') {
+            addAgentTrace(event.agent || 'Agent', event.stage || 'status', event.message || '');
+          } else if (event.type === 'permission_needed') {
+            // Show permission dialog immediately via SSE (more reliable than polling)
+            _permReqId = event.request_id;
+            document.getElementById('perm-tool-val').textContent = event.tool || 'unknown';
+            document.getElementById('perm-overlay').classList.remove('hidden');
+          } else if (event.type === 'permission_wait') {
+            addThinkStep('text', 'Waiting for permission: ' + (event.tool || 'tool') + '...');
           } else if (event.type === 'done') {
+            const workEl = document.getElementById('agent-working');
+            if (workEl) workEl.classList.add('hidden');
             removeThinkFold();
+            _liveMsgEl = null;
             accumulatedContent = event.content || '(no response)';
           } else if (event.type === 'session') {
             clearTimeout(_sendTimer);
             if (abortController.signal.aborted) return;
+            _liveMsgEl = null;
             const sess = event.session;
             msgs.innerHTML = sess.messages.map((msg, i) => renderMsg(msg.role, msg.content, i, msg.timestamp)).join('');
             collapseLongMessages();
             updateContextBar(sess);
+            renderAgentPlan(sess.agent_plan || []);
+            // Restore agent logs after streaming completes
+            if (sess.agent_logs && sess.agent_logs.length) {
+              _agentTrace = sess.agent_logs;
+              const trace = document.getElementById('agent-trace');
+              const panel = document.getElementById('agent-sidebar');
+              if (trace && panel) {
+                panel.classList.remove('hidden');
+                trace.innerHTML = _agentTrace.map(item => {
+                  const formatted = prettyMsg(item.message || '');
+                  return `<div class="agent-trace-item"><div class="agent-trace-head"><span class="agent-trace-agent">${esc(item.agent || 'Agent')}</span><span class="agent-trace-stage">${esc(item.stage || 'update')}</span></div><div class="agent-trace-text">${esc(formatted)}</div></div>`;
+                }).join('');
+              }
+            }
             scrollDown();
             refreshSessions();
           } else if (event.type === 'error') {
@@ -488,6 +784,7 @@ async function send() {
     }
   } catch (e) {
     clearTimeout(_sendTimer);
+    stopPermPoll();
     if (abortController?.signal.aborted) { updateSendBtn(); return; }
     removeThinkFold();
     const errMsg = e.message;
@@ -496,6 +793,7 @@ async function send() {
     scrollDown();
   }
 
+  stopPermPoll();
   sending = false;
   document.getElementById('send-btn').disabled = false;
   updateSendBtn();
@@ -791,22 +1089,120 @@ function clearError() {
 }
 
 // ─── Dev Panel ───
-function showDev(chunks) {
-  const p = document.getElementById('dev-panel');
-  document.getElementById('dev-content').textContent =
-    chunks.map(c => `\u2500\u2500 ${c.heading} \u2500\u2500\n${c.text.slice(0, 300)}`).join('\n\n');
-  p.classList.remove('hidden');
+let _devPanelOpen = true;
+
+function toggleDevPanel() {
+  _devPanelOpen = !_devPanelOpen;
+  const panel = document.getElementById('dev-panel');
+  const content = document.getElementById('dev-content');
+  if (panel) panel.classList.toggle('collapsed', !_devPanelOpen);
+  if (content) content.style.display = _devPanelOpen ? '' : 'none';
 }
-function hideDev() { document.getElementById('dev-panel').classList.add('hidden'); }
+
+function hideDev() {
+  _devState = { metrics: null };
+  updateDevPanel();
+}
 function toggleDev() {
-  if (!document.getElementById('dev-mode').checked) hideDev();
-  const dev = document.getElementById('dev-mode').checked;
+  const cb = document.getElementById('s-dev-mode');
+  const dev = cb ? cb.checked : false;
+  if (!dev) hideDev();
+  _devPanelOpen = dev;
   [ $('#model-picker'), $('#s-model') ].forEach(sel => {
     for (let i = 0; i < sel.options.length; i++) {
       const m = _ALL_MODELS.find(x => x.id === sel.options[i].value);
       if (m) sel.options[i].textContent = dev ? m.tier + ' \u2014 ' + m.id : m.tier;
     }
   });
+}
+
+// ─── Permission System ───
+function startPermPoll() {
+  stopPermPoll();
+  _permPollTimer = setInterval(async () => {
+    try {
+      const res = await fetch('/api/permission/pending').then(r => r.json());
+      if (res.pending && res.request_id) {
+        _permReqId = res.request_id;
+        document.getElementById('perm-tool-val').textContent = res.tool_name || 'unknown';
+        const warn = document.getElementById('perm-asset-warn');
+        if (warn) warn.classList.toggle('hidden', !res.is_asset);
+        document.getElementById('perm-overlay').classList.remove('hidden');
+      }
+    } catch {}
+  }, 800);
+}
+function stopPermPoll() {
+  if (_permPollTimer) { clearInterval(_permPollTimer); _permPollTimer = null; }
+}
+async function permRespond(decision) {
+  document.getElementById('perm-overlay').classList.add('hidden');
+  if (_permReqId) {
+    const body = { request_id: _permReqId, decision, tool_name: document.getElementById('perm-tool-val').textContent };
+    await fetch('/api/permission/respond', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) }).catch(() => {});
+    _permReqId = null;
+  }
+}
+function closePerm(e) {
+  if (e && e.target && e.target.id === 'perm-overlay') document.getElementById('perm-overlay').classList.add('hidden');
+}
+async function clearPermCache() {
+  await fetch('/api/permission/clear', { method: 'POST' }).catch(() => {});
+  const el = document.getElementById('s-perm-status');
+  if (el) { el.textContent = 'Cleared!'; setTimeout(() => el.textContent = '', 2000); }
+}
+
+// Allowed commands (always-permitted MCP tools)
+let _allowedTools = [];
+
+async function loadMcpToolNames() {
+  try {
+    const d = await api('/api/tools/mcp-names');
+    return d.tools || [];
+  } catch { return []; }
+}
+
+function renderAllowedToolsCheckboxes(tools, allowed) {
+  const container = document.getElementById('s-allowed-tools-container');
+  if (!container) return;
+  if (!tools.length) {
+    container.innerHTML = '<div style="padding:10px;font-size:11px;color:var(--text3);text-align:center">No MCP tools available. Enable Roblox Integration first.</div>';
+    return;
+  }
+  container.innerHTML = tools.map(t => {
+    const checked = allowed.includes(t);
+    return `
+      <label class="allowed-tool-item">
+        <input type="checkbox" value="${esc(t)}" ${checked ? 'checked' : ''} onchange="onAllowedToolToggle(this)">
+        <span class="allowed-tool-check"></span>
+        <span class="allowed-tool-label">${esc(t)}</span>
+      </label>`;
+  }).join('');
+}
+
+function onAllowedToolToggle(cb) {
+  const val = cb.value;
+  if (cb.checked) {
+    if (!_allowedTools.includes(val)) _allowedTools.push(val);
+  } else {
+    _allowedTools = _allowedTools.filter(t => t !== val);
+  }
+}
+
+function selectAllAllowedTools() {
+  const container = document.getElementById('s-allowed-tools-container');
+  if (!container) return;
+  const cbs = container.querySelectorAll('input[type="checkbox"]');
+  cbs.forEach(cb => { cb.checked = true; });
+  _allowedTools = Array.from(cbs).map(cb => cb.value);
+}
+
+function clearAllowedTools() {
+  const container = document.getElementById('s-allowed-tools-container');
+  if (!container) return;
+  const cbs = container.querySelectorAll('input[type="checkbox"]');
+  cbs.forEach(cb => { cb.checked = false; });
+  _allowedTools = [];
 }
 
 // ─── Welcome ───
@@ -845,11 +1241,40 @@ async function openSettings() {
       document.getElementById('s-model').value = c.model;
       document.getElementById('model-picker').value = c.model;
     }
+    // Subagent model select (same models but separate)
+    const subSel = document.getElementById('s-subagent-model');
+    if (subSel && !subSel.options.length) {
+      subSel.innerHTML = '<option value="">Same as main</option>';
+      for (const m of md.models || []) {
+        const o = document.createElement('option');
+        o.value = m.id; o.textContent = m.tier + ' \u2014 ' + m.id;
+        subSel.appendChild(o);
+      }
+    }
+    if (subSel && c.subagent_model) subSel.value = c.subagent_model;
+
     document.getElementById('s-temp').value = c.temperature;
     document.getElementById('s-temp-val').textContent = c.temperature;
     if (c.user_context) document.getElementById('s-context').value = c.user_context;
     if (c.max_chunks) document.getElementById('s-chunks').value = c.max_chunks;
     if (c.chunk_size) document.getElementById('s-size').value = c.chunk_size;
+    if (c.max_subagents !== undefined) document.getElementById('s-max-subagents').value = c.max_subagents;
+    const cotEl = document.getElementById('s-chain-thought');
+    if (cotEl && c.chain_thought !== undefined) cotEl.checked = c.chain_thought;
+    _agentConfig.subagent_model = c.subagent_model || '';
+    _agentConfig.max_subagents = c.max_subagents || 2;
+    _agentConfig.chain_thought = c.chain_thought || false;
+
+    // Dev mode
+    const devEl = document.getElementById('s-dev-mode');
+    if (devEl && c.dev_mode !== undefined) devEl.checked = c.dev_mode;
+    // Permissions
+    const permEl = document.getElementById('s-perm-enabled');
+    if (permEl && c.permissions_enabled !== undefined) permEl.checked = c.permissions_enabled;
+    // Allowed tools
+    _allowedTools = c.allowed_tools || [];
+    const mcpTools = await loadMcpToolNames();
+    renderAllowedToolsCheckboxes(mcpTools, _allowedTools);
   } catch {}
   try {
     const d = await api('/api/websites');
@@ -885,11 +1310,21 @@ async function saveConf() {
   const ctx = document.getElementById('s-context').value.trim();
   const chunks = parseInt(document.getElementById('s-chunks').value) || 8;
   const size = parseInt(document.getElementById('s-size').value) || 1500;
-  const body = { model, temperature: temp, max_chunks: chunks, chunk_size: size };
+  const subModel = document.getElementById('s-subagent-model').value.trim();
+  const maxSub = parseInt(document.getElementById('s-max-subagents').value) || 2;
+  const chainThought = document.getElementById('s-chain-thought').checked;
+  const devMode = document.getElementById('s-dev-mode').checked;
+  const permEnabled = document.getElementById('s-perm-enabled').checked;
+  const body = { model, temperature: temp, max_chunks: chunks, chunk_size: size, subagent_model: subModel, max_subagents: maxSub, chain_thought: chainThought, dev_mode: devMode, permissions_enabled: permEnabled, allowed_tools: _allowedTools };
   if (key) body.api_key = key;
   if (ctx !== undefined) body.user_context = ctx;
   await api('/api/config', { method: 'POST', body: JSON.stringify(body) });
   document.getElementById('model-picker').value = model;
+  _agentConfig.subagent_model = subModel;
+  _agentConfig.max_subagents = maxSub;
+  _agentConfig.chain_thought = chainThought;
+  // Apply dev mode
+  toggleDev();
   const el = document.getElementById('s-save-status');
   el.textContent = 'Saved!';
   setTimeout(() => el.textContent = '', 2000);

@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Optional
 
 import requests
@@ -24,11 +25,10 @@ ROBLOX_SYSTEM = (
     "- Use your training knowledge to answer.\n"
     "TOOLBOX SEARCH: Results are pre-filtered by quality (likes + recency). You'll see the top 3 matches. Pick based on description. If the first result's description matches, use it.\n"
     "- RESPONSE LENGTH LIMIT: Maximum 80 lines per response. Hard limit.\n"
-    "- For large tasks: output the full plan as a checklist, then execute ONE part per response.\n"
     "- NEVER output more than 80 lines. If a script is longer, split it into parts.\n"
     "- Show only key parts of very long scripts: \"... [middle section omitted] ...\"\n"
-    "- Always prefer multiple short responses over one long one.\n"
     "- If you hit the limit, stop cleanly and say 'Continuing in next response'.\n"
+    "- NEVER output checklists, numbered lists, bullet lists, todo lists, plan summaries, or any kind of multi-item list in your response. Just respond conversationally in plain paragraphs.\n"
     "\n"
     "FORMATTING - CRITICAL: You MUST use proper formatting ALWAYS.\n"
     "  - Code blocks: ALWAYS wrap ALL scripts and code in ```lua ... ```\n"
@@ -57,23 +57,15 @@ ROBLOX_SYSTEM = (
     "  - If you're told \"Context compacted\", older messages were summarized to save space.\n"
     "  - You can call the compact_context tool to summarize old messages when needed.\n"
     "  - Keep responses concise to avoid filling the context.\n"
-    "\n"
-    "STEP-BY-STEP EXECUTION - CRITICAL:\n"
-    "When the user asks to build a system or multiple scripts, you MUST execute step by step:\n"
-    "  1. Output the FULL plan as a numbered checklist\n"
-    "  2. Execute ONE step at a time via MCP tools\n"
-    "  3. Mark each step [DONE] after completion\n"
-    "  4. Each intermediate response is visible to the user.\n"
-    "\n"
-    "MCP TOOL USAGE - CRITICAL HONESTY RULES:\n"
-    "  - Only claim you did something if you ACTUALLY called a tool. Never pretend.\n"
-    "  - If you output code in a ``` block, you did NOT use MCP - just say you wrote the code.\n"
-    "  - When Integration is not active, just write code with ``` formatting - no tool claims.\n"
-    "  - Tool call results are automatically logged above. You don't need to repeat them.\n"
+
+    "MCP TOOL USAGE - CRITICAL RULES:\n"
+    "  - When Roblox Integration is active, ALWAYS write scripts DIRECTLY to Studio via MCP tools. Do NOT output script code in chat.\n"
+    "  - Only describe what you did in a single sentence. Do not show the code in chat.\n"
+    "  - If you output code in a ``` block, you did NOT use MCP - that means you just wrote the code in chat. This is WRONG when Integration is active.\n"
+    "  - When Integration is NOT active, just write code with ``` formatting - no tool claims.\n"
+    "  - Tool call results are automatically logged. You don't need to repeat them.\n"
     "  - NEVER say \"creating...\" or \"I've created\" unless a tool just returned success.\n"
-    "  - After a tool succeeds, just mark the step [DONE] and move on. Don't narrate it again.\n"
     "  - If a tool fails, say it failed. Don't pretend it worked.\n"
-    "  - Be honest: if you can't do something, say so directly.\n"
     "\n"
     "GAME EXPLORATION - When Integration is active, ALWAYS explore first:\n"
     "  - Before writing any code that references existing objects, use MCP to read the game\n"
@@ -108,6 +100,10 @@ class OpenBloxClient:
         self.system_prompt = system_prompt or ROBLOX_SYSTEM
         self.user_context = user_context
         self.session = requests.Session()
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        return max(1, len(text) // 4) if text else 0
 
     def is_configured(self) -> bool:
         return bool(self.api_key)
@@ -280,9 +276,16 @@ class OpenBloxClient:
         max_rounds = 15
         reviewed = False
         content = ""
+        started_at = time.perf_counter()
+        first_token_ms = None
+        tool_calls_count = 0
+        rounds = 0
 
         for _ in range(max_rounds):
+            rounds += 1
+            round_started_at = time.perf_counter()
             resp = self._send_payload(payload)
+            round_latency_ms = round((time.perf_counter() - round_started_at) * 1000, 1)
             if resp is None:
                 if content:
                     break
@@ -298,8 +301,20 @@ class OpenBloxClient:
                 new_content = ""
 
             if new_content:
+                if first_token_ms is None:
+                    first_token_ms = round((time.perf_counter() - started_at) * 1000, 1)
                 content = new_content if reviewed else (f"{content}\n\n{new_content}" if content else new_content)
                 yield {"type": "thinking", "content": new_content}
+                yield {
+                    "type": "metric",
+                    "metric": {
+                        "scope": "round",
+                        "round": rounds,
+                        "latency_ms": round_latency_ms,
+                        "tokens_est": self._estimate_tokens(new_content),
+                        "model": self.model,
+                    },
+                }
 
             tool_calls = msg.get("tool_calls")
             if not tool_calls or not tool_handler:
@@ -316,14 +331,15 @@ class OpenBloxClient:
                 continue
 
             full.append(msg)
+            tool_calls_count += len(tool_calls)
             for tc in tool_calls:
                 fn = tc.get("function", {})
                 name = fn.get("name", "")
-                yield {"type": "tool", "tool": name, "integration": integration_name or "Tool"}
                 try:
                     args = json.loads(fn.get("arguments", "{}"))
                 except json.JSONDecodeError:
                     args = {}
+                yield {"type": "tool", "tool": name, "integration": integration_name or "Tool"}
                 result = tool_handler(name, args)
                 output_text = self._extract_tool_output_text(result)
                 yield {"type": "tool_output", "tool": name, "output": output_text or "Done."}
@@ -333,7 +349,23 @@ class OpenBloxClient:
             if tools:
                 payload["tools"] = tools
 
-        yield {"type": "done", "content": content.strip() if content else "(no response)"}
+        final_content = content.strip() if content else "(no response)"
+        total_ms = round((time.perf_counter() - started_at) * 1000, 1)
+        output_tokens = self._estimate_tokens(final_content)
+        generation_ms = max(total_ms - (first_token_ms or total_ms), 1)
+        yield {
+            "type": "metrics",
+            "metrics": {
+                "model": self.model,
+                "ttft_ms": first_token_ms,
+                "total_ms": total_ms,
+                "output_tokens_est": output_tokens,
+                "tps_est": round(output_tokens / (generation_ms / 1000), 2) if output_tokens else 0.0,
+                "rounds": rounds,
+                "tool_calls": tool_calls_count,
+            },
+        }
+        yield {"type": "done", "content": final_content}
 
     def chat_with_context(
         self,
